@@ -8,7 +8,7 @@ t_ping	g_ping;
 
 static void	init_defaults(void)
 {
-	memset(&g_ping, 0, sizeof(g_ping));
+	ft_memset(&g_ping, 0, sizeof(g_ping));
 	g_ping.opts.ttl = DEFAULT_TTL;
 	g_ping.opts.timeout = DEFAULT_TIMEOUT;
 	g_ping.opts.packet_size = PACKET_SIZE;
