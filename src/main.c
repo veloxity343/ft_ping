@@ -29,6 +29,8 @@ int	main(int argc, char **argv)
 		return (1);
 	}
 	parse_args(argc, argv);
-	ft_printf("%s: target set to %s\n", PROG_NAME, g_ping.target_raw);
+	resolve_target(g_ping.target_raw);
+	ft_printf("%s: %s resolves to %s\n", PROG_NAME,
+		g_ping.hostname, g_ping.ip_str);
 	return (0);
 }

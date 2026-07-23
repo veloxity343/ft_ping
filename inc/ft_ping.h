@@ -80,8 +80,11 @@ typedef struct s_ping
 
 extern t_ping	g_ping;
 
-// parser.c
+// parsing.c
 int		parse_args(int argc, char **argv);
 void	print_usage(int exit_code);
+
+// resolve.c
+int		resolve_target(const char *target);
 
 #endif
