@@ -19,10 +19,7 @@
 # include "libft.h"
 # include "ft_printf.h"
 
-/*
-** Constants
-*/
-
+// Constants
 # define PROG_NAME		"ft_ping"
 # define PACKET_SIZE	64
 # define MAX_PACKET		4096
@@ -30,10 +27,7 @@
 # define DEFAULT_TIMEOUT	1
 # define DEFAULT_INTERVAL	1
 
-/*
-** Command-line options
-*/
-
+// Command-line options
 typedef struct s_opts
 {
 	int				verbose;       // -v
@@ -55,7 +49,6 @@ typedef struct s_opts
 /*
 ** Running stats, used to build the summary line on exit
 */
-
 typedef struct s_stats
 {
 	int		transmitted;
@@ -70,7 +63,6 @@ typedef struct s_stats
 ** Global ping context. Relies on process-wide state so sigint
 ** handler can still print stats and exit cleanly
 */
-
 typedef struct s_ping
 {
 	t_opts					opts;
@@ -87,5 +79,9 @@ typedef struct s_ping
 }	t_ping;
 
 extern t_ping	g_ping;
+
+// parser.c
+int		parse_args(int argc, char **argv);
+void	print_usage(int exit_code);
 
 #endif

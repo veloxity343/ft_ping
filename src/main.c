@@ -3,7 +3,6 @@
 /*
 ** Global ping context, zero-initialised
 */
-
 t_ping	g_ping;
 
 static void	init_defaults(void)
@@ -18,10 +17,9 @@ static void	init_defaults(void)
 }
 
 /*
-** Temporary entrypoint to have something to build
-** against. This will be replaced once we can parse args
+** Entry point: sets defaults, parses args,
+** reports resolved target
 */
-
 int	main(int argc, char **argv)
 {
 	init_defaults();
@@ -30,7 +28,7 @@ int	main(int argc, char **argv)
 		ft_printf("usage: %s <target>\n", PROG_NAME);
 		return (1);
 	}
-	g_ping.target_raw = argv[1];
+	parse_args(argc, argv);
 	ft_printf("%s: target set to %s\n", PROG_NAME, g_ping.target_raw);
 	return (0);
 }
