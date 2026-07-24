@@ -23,15 +23,10 @@ static void	init_defaults(void)
 int	main(int argc, char **argv)
 {
 	init_defaults();
-	if (argc < 2)
-	{
-		ft_printf("usage: %s <target>\n", PROG_NAME);
-		return (1);
-	}
 	parse_args(argc, argv);
 	resolve_target(g_ping.target_raw);
 	open_socket();
-	ft_printf("%s: %s resolves to %s\n", PROG_NAME,
+	ft_printf("%s: %s resolves to %s, socket fd=%d\n", PROG_NAME,
 		g_ping.hostname, g_ping.ip_str, g_ping.sockfd);
 	return (0);
 }
