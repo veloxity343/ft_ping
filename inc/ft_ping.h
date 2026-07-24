@@ -87,4 +87,7 @@ void	print_usage(int exit_code);
 // resolve.c
 int		resolve_target(const char *target);
 
+// socket.c
+int		open_socket(void);
+
 #endif

@@ -30,7 +30,8 @@ int	main(int argc, char **argv)
 	}
 	parse_args(argc, argv);
 	resolve_target(g_ping.target_raw);
+	open_socket();
 	ft_printf("%s: %s resolves to %s\n", PROG_NAME,
-		g_ping.hostname, g_ping.ip_str);
+		g_ping.hostname, g_ping.ip_str, g_ping.sockfd);
 	return (0);
 }
