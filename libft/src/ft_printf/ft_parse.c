@@ -31,6 +31,8 @@ int	ft_format(char spec, va_list args, t_flags flags)
 		count += ft_print_hex(va_arg(args, unsigned int), 0, flags);
 	else if (spec == 'X')
 		count += ft_print_hex(va_arg(args, unsigned int), 1, flags);
+	else if (spec == 'f')
+		count += ft_print_float(va_arg(args, double), flags);
 	else if (spec == '%')
 		count += ft_print_char('%', flags);
 	return (count);

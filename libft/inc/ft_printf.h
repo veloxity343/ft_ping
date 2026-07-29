@@ -66,6 +66,11 @@ int		ft_print_hex(unsigned int n, int is_upper, t_flags flags);
 int		ft_print_xformat(char *strint, int n, int is_upper, t_flags flags);
 int		ft_print_xvalue(char *strint, int n, int is_upper, t_flags flags);
 int		ft_print_xprefix(int is_upper);
+// f
+int		ft_print_float(double value, t_flags flags);
+void	ft_split_float(double value, int precision, long *int_part,
+			long *frac_part);
+char	*ft_frac_to_str(long frac_part, int precision);
 
 /* ---------- HELPERS ---------- */
 

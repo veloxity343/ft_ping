@@ -15,7 +15,7 @@
 int	ft_isspec(int c)
 {
 	if (c == 'c' || c == 's' || c == 'd' || c == 'i' || c == 'u' || c == 'x'
-		|| c == 'X' || c == 'p' || c == '%')
+		|| c == 'X' || c == 'p' || c == 'f' || c == '%')
 		return (1);
 	return (0);
 }
