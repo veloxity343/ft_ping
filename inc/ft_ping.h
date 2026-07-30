@@ -1,6 +1,10 @@
 #ifndef FT_PING_H
 # define FT_PING_H
 
+# ifndef _GNU_SOURCE
+#  define _GNU_SOURCE
+# endif
+
 # include <stdio.h>
 # include <stdlib.h>
 # include <string.h>
@@ -89,5 +93,10 @@ int		resolve_target(const char *target);
 
 /* socket.c */
 int		open_socket(void);
+
+/* icmp.c */
+unsigned short	icmp_checksum(void *buf, int len);
+int				send_ping(void);
+int				receive_ping(void);
 
 #endif

@@ -21,7 +21,8 @@ static void	handle_socket_error(void)
 */
 int	open_socket(void)
 {
-	int	fd;
+	int				fd;
+	struct timeval	timeout;
 
 	fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
 	if (fd < 0)
@@ -30,6 +31,16 @@ int	open_socket(void)
 			&g_ping.opts.ttl, sizeof(g_ping.opts.ttl)) < 0)
 	{
 		ft_printf("%s: setsockopt(IP_TTL): %s\n",
+			PROG_NAME, strerror(errno));
+		close(fd);
+		exit(1);
+	}
+	timeout.tv_sec = DEFAULT_TIMEOUT;
+	timeout.tv_usec = 0;
+	if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO,
+			&timeout, sizeof(timeout)) < 0)
+	{
+		ft_printf("%s: setsockopt(SO_RCVTIMEO): %s\n",
 			PROG_NAME, strerror(errno));
 		close(fd);
 		exit(1);
