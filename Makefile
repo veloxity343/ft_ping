@@ -40,7 +40,7 @@ $(LIBFT):
 $(NAME):	$(OBJ)
 	@echo "\n$(BLUE)Building$(RESET)\t$(NAME)"
 	@make -sC $(dir $(LIBFT))
-	@$(CC) $(CFLAGS) -o $(NAME) $(OBJ) $(LIBFT)
+	@$(CC) $(CFLAGS) -o $(NAME) $(OBJ) $(LIBFT) -lm
 
 $(OBJ_DIR):
 	@mkdir -p $(OBJ_DIR)

@@ -25,21 +25,6 @@ unsigned short	icmp_checksum(void *buf, int len)
 }
 
 /*
-** Millisecond difference between two timestamps, used to turn the
-** timestamp embedded in an echo request's payload into an RTT once
-** the matching reply comes back.
-*/
-static double	diff_ms(struct timeval *start, struct timeval *end)
-{
-	double	sec_diff;
-	double	usec_diff;
-
-	sec_diff = (double)(end->tv_sec - start->tv_sec) * 1000.0;
-	usec_diff = (double)(end->tv_usec - start->tv_usec) / 1000.0;
-	return (sec_diff + usec_diff);
-}
-
-/*
 ** Fills the payload following the ICMP header: a timestamp (used to
 ** compute RTT on the way back) followed by a repeating byte pattern,
 ** matching canonical ping's default fill data.
@@ -125,7 +110,7 @@ int	receive_ping(void)
 			(struct sockaddr *)&from, &from_len);
 	if (bytes < 0)
 	{
-		if (errno == EAGAIN || errno == EWOULDBLOCK)
+		if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
 			return (-1);
 		ft_printf("%s: recvfrom: %s\n", PROG_NAME, strerror(errno));
 		return (-1);
@@ -141,10 +126,9 @@ int	receive_ping(void)
 		return (-1);
 	sent_tv = (struct timeval *)(buffer + ip_hdr_len + sizeof(struct icmphdr));
 	gettimeofday(&now, NULL);
-	rtt = diff_ms(sent_tv, &now);
+	rtt = timeval_diff_ms(sent_tv, &now);
 	update_stats(rtt);
-	ft_printf("%d bytes from %s: icmp_seq=%d ttl=%d time=%.3f ms\n",
-		(int)(bytes - ip_hdr_len), g_ping.ip_str,
-		ntohs(icmp_hdr->un.echo.sequence), ip_hdr->ip_ttl, rtt);
+	print_reply((int)(bytes - ip_hdr_len), ntohs(icmp_hdr->un.echo.sequence),
+		ip_hdr->ip_ttl, rtt);
 	return (0);
 }

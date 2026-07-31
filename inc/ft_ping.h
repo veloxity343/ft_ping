@@ -11,6 +11,7 @@
 # include <errno.h>
 # include <signal.h>
 # include <unistd.h>
+# include <math.h>
 # include <time.h>
 # include <sys/time.h>
 # include <sys/socket.h>
@@ -98,5 +99,14 @@ int		open_socket(void);
 unsigned short	icmp_checksum(void *buf, int len);
 int				send_ping(void);
 int				receive_ping(void);
+
+/* output.c */
+void	print_start_banner(void);
+void	print_reply(int bytes, int seq, int ttl, double rtt);
+void	print_statistics(void);
+
+/* utils.c */
+void	sigint_handler(int signo);
+double	timeval_diff_ms(struct timeval *start, struct timeval *end);
 
 #endif
