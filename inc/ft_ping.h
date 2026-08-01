@@ -104,6 +104,7 @@ int				receive_ping(void);
 void	print_start_banner(void);
 void	print_reply(int bytes, int seq, int ttl, double rtt);
 void	print_statistics(void);
+void	print_icmp_error(const char *from_ip, int seq, int type, int code);
 
 /* utils.c */
 void	sigint_handler(int signo);

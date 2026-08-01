@@ -86,6 +86,55 @@ static void	update_stats(double rtt)
 	g_ping.stats.rtt_sum2 += rtt * rtt;
 }
 
+static int	is_icmp_error_type(int type)
+{
+	return (type == ICMP_DEST_UNREACH || type == ICMP_SOURCE_QUENCH
+		|| type == ICMP_REDIRECT || type == ICMP_TIME_EXCEEDED
+		|| type == ICMP_PARAMETERPROB);
+}
+
+/*
+** ICMP error messages embed the original IP header + first 8 bytes of
+** original datagram in payload (RFC 792)
+*/
+static int	extract_original(unsigned char *payload, int payload_len,
+		int *seq)
+{
+	struct ip		*inner_ip;
+	struct icmphdr	*inner_icmp;
+	int				inner_ip_len;
+
+	if (payload_len < (int)sizeof(struct ip))
+		return (0);
+	inner_ip = (struct ip *)payload;
+	inner_ip_len = inner_ip->ip_hl * 4;
+	if (payload_len < inner_ip_len + (int)sizeof(struct icmphdr))
+		return (0);
+	inner_icmp = (struct icmphdr *)(payload + inner_ip_len);
+	if (ntohs(inner_icmp->un.echo.id) != (unsigned short)g_ping.pid)
+		return (0);
+	*seq = ntohs(inner_icmp->un.echo.sequence);
+	return (1);
+}
+
+/*
+** Silently ignored unless -v is set
+*/
+static void	handle_icmp_error(struct icmphdr *icmp_hdr, unsigned char *buffer,
+		int bytes, int ip_hdr_len, struct sockaddr_in *from)
+{
+	int		seq;
+	char	from_ip[INET_ADDRSTRLEN];
+
+	if (!g_ping.opts.verbose)
+		return ;
+	if (!extract_original(buffer + ip_hdr_len + sizeof(struct icmphdr),
+			bytes - ip_hdr_len - (int)sizeof(struct icmphdr), &seq))
+		return ;
+	inet_ntop(AF_INET, &from->sin_addr, from_ip, sizeof(from_ip));
+	print_icmp_error(from_ip, seq, icmp_hdr->type, icmp_hdr->code);
+}
+
 /*
 ** Waits for one ICMP packet, discarding anything that is not an echo
 ** reply matching our own pid (so replies destined for other ft_ping
@@ -121,7 +170,11 @@ int	receive_ping(void)
 		return (-1);
 	icmp_hdr = (struct icmphdr *)(buffer + ip_hdr_len);
 	if (icmp_hdr->type != ICMP_ECHOREPLY)
+	{
+		if (is_icmp_error_type(icmp_hdr->type))
+			handle_icmp_error(icmp_hdr, buffer, bytes, ip_hdr_len, &from);
 		return (-1);
+	}
 	if (ntohs(icmp_hdr->un.echo.id) != (unsigned short)g_ping.pid)
 		return (-1);
 	sent_tv = (struct timeval *)(buffer + ip_hdr_len + sizeof(struct icmphdr));
