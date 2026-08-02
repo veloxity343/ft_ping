@@ -21,35 +21,46 @@
 # include <netinet/ip_icmp.h>
 # include <arpa/inet.h>
 # include <netdb.h>
+# include <getopt.h>
 # include "libft.h"
 # include "ft_printf.h"
 
 /* Constants */
-# define PROG_NAME		"ft_ping"
-# define PACKET_SIZE	64
-# define MAX_PACKET		4096
-# define DEFAULT_TTL	64
+# define PROG_NAME			"ft_ping"
+# define PACKET_SIZE		64
+# define MAX_PACKET			4096
+# define DEFAULT_TTL		64
 # define DEFAULT_TIMEOUT	1
 # define DEFAULT_INTERVAL	1
 
 /* Command-line options */
 typedef struct s_opts
 {
-	int				verbose;       // -v
-	int				flood;         // -f
-	int				numeric;       // -n
-	int				quiet;
-	int				ttl;           // --ttl
-	int				count;         // -c style / -l preload
-	int				pattern_set;   // -p
+	int				verbose;          // -v
+	int				flood;            // -f (root only; moot, raw socket already needs root)
+	int				numeric;          // -n
+	int				ttl;              // --ttl
+	int				preload;          // -l
+	int				pattern_set;      // -p
 	unsigned char	pattern[16];
 	int				pattern_len;
-	int				record_route;  // -R / -r
-	int				packet_size;   // -s
-	int				timeout;       // -w
-	int				linger;        // -W
-	int				ip_timestamp;  // --ip-timestamp
+	int				ignore_routing;   // -r (SO_DONTROUTE)
+	int				packet_size;      // -s
+	int				timeout;          // -w (deadline, seconds)
+	int				linger;           // -W (per-packet reply wait, seconds)
+	int				tos;              // -T
+	int				ip_timestamp_set; // --ip-timestamp
+	int				ip_timestamp;     // 0 = tsonly, 1 = tsaddr
 }	t_opts;
+
+/*
+** Help table and fully-formatted flag text
+*/
+typedef struct s_usage
+{
+	const char	*option;
+	const char	*description;
+}	t_usage;
 
 /*
 ** Running stats, used to build the summary line on exit

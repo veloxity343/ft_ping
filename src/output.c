@@ -31,7 +31,7 @@ static int	packet_loss_pct(void)
 }
 
 /*
-** rtt min/avg/max/mdev line. mdev is standard deviation of
+** rtt min/avg/max/stddev line. stddev is standard deviation of
 ** observed RTTs, computed from running sum/sum-of-squares via
 ** sqrt(sum2/n - avg^2)
 */
