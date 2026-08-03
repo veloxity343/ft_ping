@@ -42,6 +42,27 @@ static void	fill_payload(unsigned char *packet)
 	}
 }
 
+static int	validate_ip_icmp_packet(const unsigned char *buffer, ssize_t bytes,
+		struct ip **ip_hdr, int *ip_hdr_len, struct icmphdr **icmp_hdr)
+{
+	if (bytes < (ssize_t)sizeof(struct ip))
+		return (0);
+	*ip_hdr = (struct ip *)buffer;
+	*ip_hdr_len = (*ip_hdr)->ip_hl * 4;
+	if (*ip_hdr_len < (int)sizeof(struct ip))
+		return (0);
+	if ((size_t)bytes < (size_t)(*ip_hdr_len) + sizeof(struct icmphdr))
+		return (0);
+	*icmp_hdr = (struct icmphdr *)(buffer + *ip_hdr_len);
+	return (1);
+}
+
+static int	has_timestamp_payload(ssize_t bytes, int ip_hdr_len)
+{
+	return ((size_t)bytes >= (size_t)ip_hdr_len + sizeof(struct icmphdr)
+		+ sizeof(struct timeval));
+}
+
 /*
 ** Builds and sends one ICMP echo request. Updates the transmitted
 ** counter and advances the sequence number on success.
@@ -51,6 +72,11 @@ int	send_ping(void)
 	unsigned char	packet[MAX_PACKET];
 	struct icmphdr	*icmp_hdr;
 
+	if (g_ping.opts.packet_size < MIN_PACKET_SIZE)
+	{
+		ft_printf("%s: packet size too small\n", PROG_NAME);
+		return (-1);
+	}
 	ft_memset(packet, 0, sizeof(packet));
 	icmp_hdr = (struct icmphdr *)packet;
 	icmp_hdr->type = ICMP_ECHO;
@@ -152,31 +178,40 @@ int	receive_ping(void)
 	struct timeval		*sent_tv;
 	struct timeval		now;
 	int					ip_hdr_len;
+	int					expected_seq;
 	double				rtt;
 
-	from_len = sizeof(from);
-	bytes = recvfrom(g_ping.sockfd, buffer, sizeof(buffer), 0,
-			(struct sockaddr *)&from, &from_len);
-	if (bytes < 0)
+	expected_seq = g_ping.seq - 1;
+	while (1)
 	{
-		if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
+		from_len = sizeof(from);
+		bytes = recvfrom(g_ping.sockfd, buffer, sizeof(buffer), 0,
+				(struct sockaddr *)&from, &from_len);
+		if (bytes < 0)
+		{
+			if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
+				return (-1);
+			ft_printf("%s: recvfrom: %s\n", PROG_NAME, strerror(errno));
 			return (-1);
-		ft_printf("%s: recvfrom: %s\n", PROG_NAME, strerror(errno));
-		return (-1);
+		}
+		if (!validate_ip_icmp_packet(buffer, bytes, &ip_hdr, &ip_hdr_len,
+				&icmp_hdr))
+			continue;
+		if (icmp_hdr->type != ICMP_ECHOREPLY)
+		{
+			if (is_icmp_error_type(icmp_hdr->type))
+				handle_icmp_error(icmp_hdr, buffer, bytes, ip_hdr_len, &from);
+			continue ;
+		}
+		if (ntohs(icmp_hdr->un.echo.id) == (unsigned short)g_ping.pid
+			&& ntohs(icmp_hdr->un.echo.sequence) == (unsigned short)expected_seq
+			&& from.sin_addr.s_addr == g_ping.dest_addr.sin_addr.s_addr)
+		{
+			if (!has_timestamp_payload(bytes, ip_hdr_len))
+				continue ;
+			break ;
+		}
 	}
-	ip_hdr = (struct ip *)buffer;
-	ip_hdr_len = ip_hdr->ip_hl * 4;
-	if ((size_t)bytes < (size_t)ip_hdr_len + sizeof(struct icmphdr))
-		return (-1);
-	icmp_hdr = (struct icmphdr *)(buffer + ip_hdr_len);
-	if (icmp_hdr->type != ICMP_ECHOREPLY)
-	{
-		if (is_icmp_error_type(icmp_hdr->type))
-			handle_icmp_error(icmp_hdr, buffer, bytes, ip_hdr_len, &from);
-		return (-1);
-	}
-	if (ntohs(icmp_hdr->un.echo.id) != (unsigned short)g_ping.pid)
-		return (-1);
 	sent_tv = (struct timeval *)(buffer + ip_hdr_len + sizeof(struct icmphdr));
 	gettimeofday(&now, NULL);
 	rtt = timeval_diff_ms(sent_tv, &now);

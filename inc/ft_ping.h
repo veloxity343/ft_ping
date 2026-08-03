@@ -32,6 +32,7 @@
 # define DEFAULT_TTL		64
 # define DEFAULT_TIMEOUT	1
 # define DEFAULT_INTERVAL	1
+# define MIN_PACKET_SIZE	((int)(sizeof(struct icmphdr) + sizeof(struct timeval)))
 
 /* Command-line options */
 typedef struct s_opts

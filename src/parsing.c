@@ -3,8 +3,7 @@
 /*
 ** --ttl and --ip-timestamp have no short-option equivalent, so they
 ** need values getopt_long can return that don't collide with any
-** real character (standard technique: pick values above the ASCII
-** range getopt itself uses).
+** real character
 */
 # define OPT_TTL			1000
 # define OPT_IP_TIMESTAMP	1001
@@ -160,36 +159,40 @@ static void	parse_ip_timestamp(const char *s)
 ** Handles bonus options that takes required arg
 */
 static void	parse_valued_opt(int opt, const char *optname, const char *arg)
- {
-     int	val;
- 
-     if (opt == 'l' && parse_uint_arg(arg, 100000, &val))
-         g_ping.opts.preload = val;
-     else if (opt == 'w' && parse_uint_arg(arg, 100000, &val) && val > 0)
-         g_ping.opts.timeout = val;
-     else if (opt == 'W' && parse_uint_arg(arg, 100000, &val) && val > 0)
-         g_ping.opts.linger = val;
-     else if (opt == 's' && parse_uint_arg(arg, MAX_PACKET - 100, &val))
-         g_ping.opts.packet_size = val;
-     else if (opt == 'T' && parse_uint_arg(arg, 255, &val))
-         g_ping.opts.tos = val;
-     else if (opt == OPT_TTL && parse_uint_arg(arg, 255, &val) && val > 0)
-         g_ping.opts.ttl = val;
-     else if (opt == 'p')
-     {
-         if (!parse_pattern(arg))
-             invalid_arg(optname, arg);
-         return ;
-     }
-     else if (opt == OPT_IP_TIMESTAMP)
-     {
-         parse_ip_timestamp(arg);
-         return ;
-     }
-     else
-         invalid_arg(optname, arg);
- }
- 
+{
+    int	val;
+
+    if (opt == 'l' && parse_uint_arg(arg, 100000, &val))
+        g_ping.opts.preload = val;
+    else if (opt == 'w' && parse_uint_arg(arg, 100000, &val) && val > 0)
+        g_ping.opts.timeout = val;
+    else if (opt == 'W' && parse_uint_arg(arg, 100000, &val) && val > 0)
+        g_ping.opts.linger = val;
+    else if (opt == 's' && parse_uint_arg(arg, MAX_PACKET - 100, &val))
+    {
+        if (val < MIN_PACKET_SIZE)
+            val = MIN_PACKET_SIZE;
+        g_ping.opts.packet_size = val;
+    }
+    else if (opt == 'T' && parse_uint_arg(arg, 255, &val))
+        g_ping.opts.tos = val;
+    else if (opt == OPT_TTL && parse_uint_arg(arg, 255, &val) && val > 0)
+        g_ping.opts.ttl = val;
+    else if (opt == 'p')
+    {
+        if (!parse_pattern(arg))
+            invalid_arg(optname, arg);
+        return ;
+    }
+    else if (opt == OPT_IP_TIMESTAMP)
+    {
+        parse_ip_timestamp(arg);
+        return ;
+    }
+    else
+        invalid_arg(optname, arg);
+}
+
 /*
 ** Maps getopt return value back to long-option name
 */

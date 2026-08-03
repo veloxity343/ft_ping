@@ -52,10 +52,12 @@ static void	print_rtt_line(void)
 */
 void	print_statistics(void)
 {
-	ft_printf("\n--- %s ping statistics ---\n", g_ping.hostname);
-	ft_printf("%d packets transmitted, %d packets received, %d%% "
-		"packet loss\n", g_ping.stats.transmitted,
-		g_ping.stats.received, packet_loss_pct());
+	ft_printf("--- %s ping statistics ---\n", g_ping.hostname);
+	ft_printf("%d packets transmitted, %d packets received, ",
+		g_ping.stats.transmitted, g_ping.stats.received);
+	if (g_ping.stats.transmitted > 0)
+		ft_printf("%d%% packet loss", packet_loss_pct());
+	ft_printf("\n");
 	if (g_ping.stats.received > 0)
 		print_rtt_line();
 }
