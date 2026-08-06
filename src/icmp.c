@@ -32,12 +32,22 @@ unsigned short	icmp_checksum(void *buf, int len)
 static void	fill_payload(unsigned char *packet)
 {
 	int	i;
+	int	pattern_idx;
 
 	gettimeofday((struct timeval *)(packet + sizeof(struct icmphdr)), NULL);
 	i = sizeof(struct icmphdr) + sizeof(struct timeval);
+	pattern_idx = 0;
 	while (i < g_ping.opts.packet_size)
 	{
-		packet[i] = (unsigned char)(i & 0xff);
+		if (g_ping.opts.pattern_set && g_ping.opts.pattern_len > 0)
+		{
+			packet[i] = g_ping.opts.pattern[pattern_idx];
+			pattern_idx++;
+			if (pattern_idx >= g_ping.opts.pattern_len)
+				pattern_idx = 0;
+		}
+		else
+			packet[i] = (unsigned char)(i & 0xff);
 		i++;
 	}
 }
@@ -61,6 +71,39 @@ static int	has_timestamp_payload(ssize_t bytes, int ip_hdr_len)
 {
 	return ((size_t)bytes >= (size_t)ip_hdr_len + sizeof(struct icmphdr)
 		+ sizeof(struct timeval));
+}
+
+static int	wait_for_icmp_packet(void)
+{
+	struct pollfd	pfd;
+	struct timeval	now;
+	double			wait_ms;
+	double			remaining_ms;
+	int				timeout_ms;
+	int				rc;
+
+	wait_ms = (double)g_ping.opts.linger * 1000.0;
+	if (g_ping.opts.timeout > 0)
+	{
+		gettimeofday(&now, NULL);
+		remaining_ms = (double)g_ping.opts.timeout * 1000.0
+			- timeval_diff_ms(&g_ping.start_time, &now);
+		if (remaining_ms <= 0.0)
+			return (0);
+		if (remaining_ms < wait_ms)
+			wait_ms = remaining_ms;
+	}
+	timeout_ms = (int)ceil(wait_ms);
+	pfd.fd = g_ping.sockfd;
+	pfd.events = POLLIN;
+	while ((rc = poll(&pfd, 1, timeout_ms)) < 0)
+	{
+		if (errno == EINTR)
+			return (-1);
+		ft_printf("%s: poll: %s\n", PROG_NAME, strerror(errno));
+		return (-1);
+	}
+	return (rc);
 }
 
 /*
@@ -169,7 +212,7 @@ static void	handle_icmp_error(struct icmphdr *icmp_hdr, unsigned char *buffer,
 */
 int	receive_ping(void)
 {
-	unsigned char		buffer[MAX_PACKET];
+	unsigned char		buffer[MAX_RECV_PACKET];
 	struct sockaddr_in	from;
 	socklen_t			from_len;
 	ssize_t				bytes;
@@ -184,6 +227,8 @@ int	receive_ping(void)
 	expected_seq = g_ping.seq - 1;
 	while (1)
 	{
+		if (!wait_for_icmp_packet())
+			return (-1);
 		from_len = sizeof(from);
 		bytes = recvfrom(g_ping.sockfd, buffer, sizeof(buffer), 0,
 				(struct sockaddr *)&from, &from_len);

@@ -13,6 +13,7 @@
 # include <unistd.h>
 # include <math.h>
 # include <time.h>
+# include <poll.h>
 # include <sys/time.h>
 # include <sys/socket.h>
 # include <sys/types.h>
@@ -29,6 +30,7 @@
 # define PROG_NAME			"ft_ping"
 # define PACKET_SIZE		64
 # define MAX_PACKET			4096
+# define MAX_RECV_PACKET	(MAX_PACKET + 128)
 # define DEFAULT_TTL		64
 # define DEFAULT_TIMEOUT	1
 # define DEFAULT_INTERVAL	1

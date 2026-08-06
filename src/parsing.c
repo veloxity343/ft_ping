@@ -168,11 +168,12 @@ static void	parse_valued_opt(int opt, const char *optname, const char *arg)
         g_ping.opts.timeout = val;
     else if (opt == 'W' && parse_uint_arg(arg, 100000, &val) && val > 0)
         g_ping.opts.linger = val;
-    else if (opt == 's' && parse_uint_arg(arg, MAX_PACKET - 100, &val))
+    else if (opt == 's'
+        && parse_uint_arg(arg, MAX_PACKET - (int)sizeof(struct icmphdr), &val))
     {
-        if (val < MIN_PACKET_SIZE)
-            val = MIN_PACKET_SIZE;
-        g_ping.opts.packet_size = val;
+        if (val < (int)sizeof(struct timeval))
+            val = (int)sizeof(struct timeval);
+        g_ping.opts.packet_size = val + (int)sizeof(struct icmphdr);
     }
     else if (opt == 'T' && parse_uint_arg(arg, 255, &val))
         g_ping.opts.tos = val;
