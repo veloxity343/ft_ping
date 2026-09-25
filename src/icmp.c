@@ -83,6 +83,8 @@ static int	wait_for_icmp_packet(void)
 	int				rc;
 
 	wait_ms = (double)g_ping.opts.linger * 1000.0;
+	if (g_ping.opts.flood && wait_ms > (double)FLOOD_POLL_MS)
+		wait_ms = (double)FLOOD_POLL_MS;
 	if (g_ping.opts.timeout > 0)
 	{
 		gettimeofday(&now, NULL);
@@ -221,13 +223,11 @@ int	receive_ping(void)
 	struct timeval		*sent_tv;
 	struct timeval		now;
 	int					ip_hdr_len;
-	int					expected_seq;
 	double				rtt;
 
-	expected_seq = g_ping.seq - 1;
 	while (1)
 	{
-		if (!wait_for_icmp_packet())
+		if (wait_for_icmp_packet() <= 0)
 			return (-1);
 		from_len = sizeof(from);
 		bytes = recvfrom(g_ping.sockfd, buffer, sizeof(buffer), 0,
@@ -249,7 +249,6 @@ int	receive_ping(void)
 			continue ;
 		}
 		if (ntohs(icmp_hdr->un.echo.id) == (unsigned short)g_ping.pid
-			&& ntohs(icmp_hdr->un.echo.sequence) == (unsigned short)expected_seq
 			&& from.sin_addr.s_addr == g_ping.dest_addr.sin_addr.s_addr)
 		{
 			if (!has_timestamp_payload(bytes, ip_hdr_len))

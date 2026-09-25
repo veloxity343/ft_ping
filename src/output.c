@@ -11,10 +11,16 @@ void	print_start_banner(void)
 }
 
 /*
-** Per-reply line
+** Per-reply line. Under -f/--flood this collapses to a single
+** backspace, erasing one of the dots printed at send time.
 */
 void	print_reply(int bytes, int seq, int ttl, double rtt)
 {
+	if (g_ping.opts.flood)
+	{
+		ft_printf("\b");
+		return ;
+	}
 	ft_printf("%d bytes from %s: icmp_seq=%d ttl=%d time=%.3f ms\n",
 		bytes, g_ping.ip_str, seq, ttl, rtt);
 }
