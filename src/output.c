@@ -6,23 +6,31 @@
 */
 void	print_start_banner(void)
 {
-	ft_printf("PING %s (%s): %d data bytes\n", g_ping.hostname,
+	ft_printf("PING %s (%s): %d data bytes", g_ping.hostname,
 		g_ping.ip_str, g_ping.opts.packet_size - (int)sizeof(struct icmphdr));
+	if (g_ping.opts.verbose)
+		ft_printf(", id 0x%04x = %u", (unsigned short)g_ping.pid,
+			(unsigned short)g_ping.pid);
+	ft_printf("\n");
 }
 
 /*
 ** Per-reply line. Under -f/--flood this collapses to a single
-** backspace, erasing one of the dots printed at send time.
+** backspace, erasing one of the dots printed at send time (dup or
+** not - canonical doesn't distinguish them in flood output either).
 */
-void	print_reply(int bytes, int seq, int ttl, double rtt)
+void	print_reply(int bytes, int seq, int ttl, double rtt, int dup)
 {
 	if (g_ping.opts.flood)
 	{
 		ft_printf("\b");
 		return ;
 	}
-	ft_printf("%d bytes from %s: icmp_seq=%d ttl=%d time=%.3f ms\n",
+	ft_printf("%d bytes from %s: icmp_seq=%d ttl=%d time=%.3f ms",
 		bytes, g_ping.ip_str, seq, ttl, rtt);
+	if (dup)
+		ft_printf(" (DUP!)");
+	ft_printf("\n");
 }
 
 /*
@@ -61,8 +69,15 @@ void	print_statistics(void)
 	ft_printf("--- %s ping statistics ---\n", g_ping.hostname);
 	ft_printf("%d packets transmitted, %d packets received, ",
 		g_ping.stats.transmitted, g_ping.stats.received);
+	if (g_ping.stats.duplicates > 0)
+		ft_printf("+%d duplicates, ", g_ping.stats.duplicates);
 	if (g_ping.stats.transmitted > 0)
-		ft_printf("%d%% packet loss", packet_loss_pct());
+	{
+		if (g_ping.stats.received > g_ping.stats.transmitted)
+			ft_printf("-- somebody is printing forged packets!");
+		else
+			ft_printf("%d%% packet loss", packet_loss_pct());
+	}
 	ft_printf("\n");
 	if (g_ping.stats.received > 0)
 		print_rtt_line();
