@@ -32,12 +32,22 @@ unsigned short	icmp_checksum(void *buf, int len)
 static void	fill_payload(unsigned char *packet)
 {
 	int	i;
+	int	pattern_idx;
 
 	gettimeofday((struct timeval *)(packet + sizeof(struct icmphdr)), NULL);
 	i = sizeof(struct icmphdr) + sizeof(struct timeval);
+	pattern_idx = 0;
 	while (i < g_ping.opts.packet_size)
 	{
-		packet[i] = (unsigned char)(i & 0xff);
+		if (g_ping.opts.pattern_set && g_ping.opts.pattern_len > 0)
+		{
+			packet[i] = g_ping.opts.pattern[pattern_idx];
+			pattern_idx++;
+			if (pattern_idx >= g_ping.opts.pattern_len)
+				pattern_idx = 0;
+		}
+		else
+			packet[i] = (unsigned char)(i & 0xff);
 		i++;
 	}
 }
@@ -64,6 +74,59 @@ static int	has_timestamp_payload(ssize_t bytes, int ip_hdr_len)
 }
 
 /*
+** Duplicate-reply tracking: one bit per possible 16-bit ICMP sequence
+** number, set the first time a reply for that seq is matched. Correct
+** regardless of arrival order, unlike a monotonic "next expected seq"
+** pointer, which breaks once multiple requests can be outstanding at
+** once (preload/flood) and a later seq's reply arrives before an
+** earlier one's.
+*/
+static int	seq_seen(unsigned short seq)
+{
+	return ((g_ping.dup_seen[seq / 8] & (1 << (seq % 8))) != 0);
+}
+
+static void	seq_mark(unsigned short seq)
+{
+	g_ping.dup_seen[seq / 8] |= (1 << (seq % 8));
+}
+
+static int	wait_for_icmp_packet(void)
+{
+	struct pollfd	pfd;
+	struct timeval	now;
+	double			wait_ms;
+	double			remaining_ms;
+	int				timeout_ms;
+	int				rc;
+
+	wait_ms = (double)g_ping.opts.linger * 1000.0;
+	if (g_ping.opts.flood && wait_ms > (double)FLOOD_POLL_MS)
+		wait_ms = (double)FLOOD_POLL_MS;
+	if (g_ping.opts.timeout > 0)
+	{
+		gettimeofday(&now, NULL);
+		remaining_ms = (double)g_ping.opts.timeout * 1000.0
+			- timeval_diff_ms(&g_ping.start_time, &now);
+		if (remaining_ms <= 0.0)
+			return (0);
+		if (remaining_ms < wait_ms)
+			wait_ms = remaining_ms;
+	}
+	timeout_ms = (int)ceil(wait_ms);
+	pfd.fd = g_ping.sockfd;
+	pfd.events = POLLIN;
+	while ((rc = poll(&pfd, 1, timeout_ms)) < 0)
+	{
+		if (errno == EINTR)
+			return (-1);
+		ft_printf("%s: poll: %s\n", PROG_NAME, strerror(errno));
+		return (-1);
+	}
+	return (rc);
+}
+
+/*
 ** Builds and sends one ICMP echo request. Updates the transmitted
 ** counter and advances the sequence number on success.
 */
@@ -77,6 +140,8 @@ int	send_ping(void)
 		ft_printf("%s: packet size too small\n", PROG_NAME);
 		return (-1);
 	}
+	if ((unsigned short)g_ping.seq == 0)
+		ft_memset(g_ping.dup_seen, 0, sizeof(g_ping.dup_seen));
 	ft_memset(packet, 0, sizeof(packet));
 	icmp_hdr = (struct icmphdr *)packet;
 	icmp_hdr->type = ICMP_ECHO;
@@ -99,12 +164,16 @@ int	send_ping(void)
 }
 
 /*
-** Records a validated reply's RTT into the running statistics.
+** Records a validated reply's RTT into the running min/max/sum
+** statistics. Called for every matched reply, duplicates included,
+** matching canonical (which times a reply before checking whether
+** it's a dup). Counting into stats.received/duplicates happens
+** separately in the caller.
 */
-static void	update_stats(double rtt)
+static void	update_rtt_stats(double rtt)
 {
-	g_ping.stats.received++;
-	if (g_ping.stats.received == 1 || rtt < g_ping.stats.rtt_min)
+	if (g_ping.stats.received + g_ping.stats.duplicates == 0
+		|| rtt < g_ping.stats.rtt_min)
 		g_ping.stats.rtt_min = rtt;
 	if (rtt > g_ping.stats.rtt_max)
 		g_ping.stats.rtt_max = rtt;
@@ -169,7 +238,7 @@ static void	handle_icmp_error(struct icmphdr *icmp_hdr, unsigned char *buffer,
 */
 int	receive_ping(void)
 {
-	unsigned char		buffer[MAX_PACKET];
+	unsigned char		buffer[MAX_RECV_PACKET];
 	struct sockaddr_in	from;
 	socklen_t			from_len;
 	ssize_t				bytes;
@@ -178,12 +247,14 @@ int	receive_ping(void)
 	struct timeval		*sent_tv;
 	struct timeval		now;
 	int					ip_hdr_len;
-	int					expected_seq;
+	int					seq;
+	int					dup;
 	double				rtt;
 
-	expected_seq = g_ping.seq - 1;
 	while (1)
 	{
+		if (wait_for_icmp_packet() <= 0)
+			return (-1);
 		from_len = sizeof(from);
 		bytes = recvfrom(g_ping.sockfd, buffer, sizeof(buffer), 0,
 				(struct sockaddr *)&from, &from_len);
@@ -204,7 +275,6 @@ int	receive_ping(void)
 			continue ;
 		}
 		if (ntohs(icmp_hdr->un.echo.id) == (unsigned short)g_ping.pid
-			&& ntohs(icmp_hdr->un.echo.sequence) == (unsigned short)expected_seq
 			&& from.sin_addr.s_addr == g_ping.dest_addr.sin_addr.s_addr)
 		{
 			if (!has_timestamp_payload(bytes, ip_hdr_len))
@@ -215,8 +285,16 @@ int	receive_ping(void)
 	sent_tv = (struct timeval *)(buffer + ip_hdr_len + sizeof(struct icmphdr));
 	gettimeofday(&now, NULL);
 	rtt = timeval_diff_ms(sent_tv, &now);
-	update_stats(rtt);
-	print_reply((int)(bytes - ip_hdr_len), ntohs(icmp_hdr->un.echo.sequence),
-		ip_hdr->ip_ttl, rtt);
+	seq = ntohs(icmp_hdr->un.echo.sequence);
+	update_rtt_stats(rtt);
+	dup = seq_seen((unsigned short)seq);
+	if (dup)
+		g_ping.stats.duplicates++;
+	else
+	{
+		seq_mark((unsigned short)seq);
+		g_ping.stats.received++;
+	}
+	print_reply((int)(bytes - ip_hdr_len), seq, ip_hdr->ip_ttl, rtt, dup);
 	return (0);
 }

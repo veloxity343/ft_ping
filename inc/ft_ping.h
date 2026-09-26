@@ -13,6 +13,7 @@
 # include <unistd.h>
 # include <math.h>
 # include <time.h>
+# include <poll.h>
 # include <sys/time.h>
 # include <sys/socket.h>
 # include <sys/types.h>
@@ -29,17 +30,20 @@
 # define PROG_NAME			"ft_ping"
 # define PACKET_SIZE		64
 # define MAX_PACKET			4096
+# define MAX_RECV_PACKET	(MAX_PACKET + 128)
 # define DEFAULT_TTL		64
 # define DEFAULT_TIMEOUT	1
 # define DEFAULT_INTERVAL	1
+# define FLOOD_POLL_MS		10
 # define MIN_PACKET_SIZE	((int)(sizeof(struct icmphdr) + sizeof(struct timeval)))
+# define DUP_BITMAP_BYTES	8192 /* one bit per possible 16-bit ICMP seq */
 
 /* Command-line options */
 typedef struct s_opts
 {
 	int				verbose;          // -v
 	int				flood;            // -f (root only; moot, raw socket already needs root)
-	int				numeric;          // -n
+	int				numeric;          // -n (accepted, no-op: see note below)
 	int				ttl;              // --ttl
 	int				preload;          // -l
 	int				pattern_set;      // -p
@@ -53,6 +57,14 @@ typedef struct s_opts
 	int				ip_timestamp_set; // --ip-timestamp
 	int				ip_timestamp;     // 0 = tsonly, 1 = tsaddr
 }	t_opts;
+
+/*
+** numeric (-n) only ever suppresses reverse-DNS lookup of a reply's
+** source address in canonical ping. The mandatory subject requires
+** we never do that lookup regardless, so there is nothing left for
+** -n to toggle here; it is parsed and accepted for compatibility but
+** has no additional effect.
+*/
 
 /*
 ** Help table and fully-formatted flag text
@@ -70,6 +82,7 @@ typedef struct s_stats
 {
 	int		transmitted;
 	int		received;
+	int		duplicates;
 	double	rtt_min;
 	double	rtt_max;
 	double	rtt_sum;
@@ -91,6 +104,7 @@ typedef struct s_ping
 	struct sockaddr_in		dest_addr;
 	pid_t					pid;
 	int						seq;
+	unsigned char			dup_seen[DUP_BITMAP_BYTES];
 	volatile sig_atomic_t	stop;
 	struct timeval			start_time;
 }	t_ping;
@@ -114,7 +128,7 @@ int				receive_ping(void);
 
 /* output.c */
 void	print_start_banner(void);
-void	print_reply(int bytes, int seq, int ttl, double rtt);
+void	print_reply(int bytes, int seq, int ttl, double rtt, int dup);
 void	print_statistics(void);
 void	print_icmp_error(const char *from_ip, int seq, int type, int code);
 
