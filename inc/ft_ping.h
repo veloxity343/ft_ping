@@ -26,6 +26,43 @@
 # include "libft.h"
 # include "ft_printf.h"
 
+# ifndef __linux__
+#  include <netinet/ip_var.h>
+# endif
+
+# ifndef __linux__
+struct icmphdr
+{
+	uint8_t		type;
+	uint8_t		code;
+	uint16_t	checksum;
+	union
+	{
+		struct
+		{
+			uint16_t	id;
+			uint16_t	sequence;
+		}			echo;
+		uint32_t	gateway;
+		struct
+		{
+			uint16_t	reserved;
+			uint16_t	mtu;
+		}			frag;
+	}			un;
+};
+
+#  define ICMP_DEST_UNREACH		ICMP_UNREACH
+#  define ICMP_SOURCE_QUENCH	ICMP_SOURCEQUENCH
+#  define ICMP_TIME_EXCEEDED	ICMP_TIMXCEED
+#  define ICMP_PARAMETERPROB	ICMP_PARAMPROB
+#  define ICMP_NET_UNREACH		ICMP_UNREACH_NET
+#  define ICMP_HOST_UNREACH		ICMP_UNREACH_HOST
+#  define ICMP_PROT_UNREACH		ICMP_UNREACH_PROTOCOL
+#  define ICMP_PORT_UNREACH		ICMP_UNREACH_PORT
+#  define ICMP_EXC_FRAGTIME		ICMP_TIMXCEED_REASS
+# endif
+
 /* Constants */
 # define PROG_NAME			"ft_ping"
 # define PACKET_SIZE		64
