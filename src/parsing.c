@@ -45,13 +45,19 @@ static const t_usage	g_usage[] = {
     {NULL, NULL}
 };
 
-/*
-** getopt_long() cannot cleanly distinguish a genuine "-?" flag from
-** its own "unrecognised option" return code, since both resolve to
-** the character '?'. Rather than fight that ambiguity, argv is
-** scanned directly first and a literal "-?" token is treated as an
-** immediate request for help.
-*/
+/**
+ * @brief Checks argv directly for a literal "-?" token.
+ *
+ * getopt_long() cannot cleanly distinguish a genuine "-?" flag from its
+ * own "unrecognised option" return code, since both resolve to the
+ * character '?'. Rather than fight that ambiguity, argv is scanned
+ * directly before getopt_long() ever runs, and a literal "-?" is treated
+ * as an immediate request for help.
+ *
+ * @param argc Argument count.
+ * @param argv Argument vector.
+ * @return 1 if "-?" appears anywhere in argv, else 0.
+ */
 static int	has_help_flag(int argc, char **argv)
 {
     int	i;
@@ -66,12 +72,20 @@ static int	has_help_flag(int argc, char **argv)
     return (0);
 }
 
-/*
-** Validates a required_argument string as a plain non-negative
-** integer up to `max`, rejecting empty strings, non-digit characters,
-** and out-of-range values outright rather than trusting ft_atoi to
-** catch malformed input, which it doesn't reliably do.
-*/
+/**
+ * @brief Validates a required_argument string as a plain non-negative
+ * integer, up to a caller-given maximum.
+ *
+ * Rejects empty strings, non-digit characters, and out-of-range values
+ * outright, rather than trusting ft_atoi() to catch malformed input
+ * (which it doesn't reliably do - e.g. it silently ignores trailing
+ * garbage).
+ *
+ * @param s   The raw argument string (e.g. optarg).
+ * @param max Largest value accepted; anything greater is rejected.
+ * @param out Set to the parsed value on success; untouched on failure.
+ * @return 1 if s is a valid, in-range unsigned integer, else 0.
+ */
 static int	parse_uint_arg(const char *s, int max, int *out)
 {
     long	result;
@@ -94,6 +108,12 @@ static int	parse_uint_arg(const char *s, int max, int *out)
     return (1);
 }
 
+/**
+ * @brief Converts one hex digit to its numeric value.
+ *
+ * @param c A single character.
+ * @return 0-15 for a valid hex digit ('0'-'9', 'a'-'f', 'A'-'F'), else -1.
+ */
 static int	hex_val(char c)
 {
     if (c >= '0' && c <= '9')
@@ -105,9 +125,21 @@ static int	hex_val(char c)
     return (-1);
 }
 
-/*
-** Parses hex pattern for -p into up to 16 raw bytes
-*/
+/**
+ * @brief Parses -p/--pattern's hex string into raw bytes.
+ *
+ * Each pair of hex digits becomes one payload byte, cycled by
+ * fill_payload() (icmp.c) to fill the rest of the ICMP packet. Rejects
+ * an empty string, an odd number of hex digits, more than 16 bytes
+ * (32 hex digits), or any non-hex character.
+ *
+ * @param s The raw argument string, e.g. "deadbeef".
+ * @return 1 on success, with g_ping.opts.pattern/pattern_len/pattern_set
+ *         all populated. 0 on any validation failure; pattern[] may have
+ *         been partially written up to the invalid pair, but pattern_set
+ *         is only set on full success, so that partial data is never
+ *         read by fill_payload().
+ */
 static int	parse_pattern(const char *s)
 {
     int	len;
@@ -133,7 +165,16 @@ static int	parse_pattern(const char *s)
     return (1);
 }
 
-/* place invalid_arg before any callers to avoid forward decls */
+/**
+ * @brief Reports an invalid option argument and exits.
+ *
+ * Placed before any callers in the file to avoid a forward declaration.
+ * Never returns: print_usage(1) calls exit(1).
+ *
+ * @param optname The long-form option name to show in the message, e.g.
+ *                 "--preload" (see opt_display_name()).
+ * @param val      The offending argument string as the user typed it.
+ */
 static void	invalid_arg(const char *optname, const char *val)
 {
     ft_printf("%s: invalid argument '%s' for '%s'\n",
@@ -141,9 +182,12 @@ static void	invalid_arg(const char *optname, const char *val)
     print_usage(1);
 }
 
-/*
-** Parses --ip-timestamp's value: "tsonly" or "tsaddr"
-*/
+/**
+ * @brief Parses --ip-timestamp's value.
+ *
+ * @param s Must be exactly "tsonly" or "tsaddr" (case-sensitive); any
+ *          other value is reported via invalid_arg(), which exits.
+ */
 static void	parse_ip_timestamp(const char *s)
 {
     if (ft_strcmp(s, "tsonly") == 0)
@@ -155,9 +199,20 @@ static void	parse_ip_timestamp(const char *s)
     g_ping.opts.ip_timestamp_set = 1;
 }
 
-/*
-** Handles bonus options that takes required arg
-*/
+/**
+ * @brief Handles every bonus option that takes a required argument
+ * (-l, -w, -W, -s, -T, --ttl, -p, --ip-timestamp).
+ *
+ * Each branch validates and applies its own option; a failed
+ * parse_uint_arg() falls through the else-if chain to the final else,
+ * which reports the failure via invalid_arg() (and exits).
+ *
+ * @param opt     The getopt_long() return value identifying which option
+ *                 this call is for.
+ * @param optname Display name for error messages (see
+ *                 opt_display_name()).
+ * @param arg     The option's argument string (optarg).
+ */
 static void	parse_valued_opt(int opt, const char *optname, const char *arg)
 {
     int	val;
@@ -194,9 +249,17 @@ static void	parse_valued_opt(int opt, const char *optname, const char *arg)
         invalid_arg(optname, arg);
 }
 
-/*
-** Maps getopt return value back to long-option name
-*/
+/**
+ * @brief Maps a getopt_long() return value back to its long-option name,
+ * for error messages.
+ *
+ * @param opt A getopt_long() return value (a short-option char, or one of
+ *            the OPT_TTL/OPT_IP_TIMESTAMP synthetic values for the two
+ *            long-only options).
+ * @return The matching "--long-name" string, or "option" as a fallback
+ *         (should be unreachable in practice - every valued option is
+ *         listed here).
+ */
 static const char	*opt_display_name(int opt)
 {
     if (opt == 'l')
@@ -218,6 +281,16 @@ static const char	*opt_display_name(int opt)
     return ("option");
 }
 
+/**
+ * @brief Reports an unrecognised short option and exits.
+ *
+ * Called with optopt, which getopt_long() sets to the offending
+ * character for an unknown short option - or 0/'?' for cases that
+ * aren't a clean single character (e.g. an unknown long option),
+ * hence the printable-range check before formatting it as a char.
+ *
+ * @param opt Typically optopt from the parse_args() loop.
+ */
 static void	handle_unknown_option(int opt)
 {
     if (opt > 0 && opt < 128)
@@ -227,9 +300,20 @@ static void	handle_unknown_option(int opt)
     print_usage(1);
 }
 
-/*
-** Parses all options
-*/
+/**
+ * @brief Parses the full command line: options via getopt_long(), then
+ * the trailing host argument.
+ *
+ * "-?" is checked for directly first (see has_help_flag()) since
+ * getopt_long() can't distinguish it from its own error return. Bonus
+ * options with a required argument are dispatched to parse_valued_opt();
+ * everything else is a simple flag set directly on g_ping.opts.
+ *
+ * @param argc Argument count, as passed to main().
+ * @param argv Argument vector, as passed to main().
+ * @return Always 0. Fatal parse errors (missing host, invalid option)
+ *         call print_usage(1), which exits and never returns here.
+ */
 int	parse_args(int argc, char **argv)
 {
     int	opt;
@@ -264,10 +348,13 @@ int	parse_args(int argc, char **argv)
     return (0);
 }
 
-/*
-** Widest option string across the table, so every description starts
-** in the same column regardless of how long any one entry is.
-*/
+/**
+ * @brief Finds the widest option string across g_usage, so every
+ * description in print_usage()'s help listing starts in the same
+ * column regardless of how long any one entry's flag text is.
+ *
+ * @return Length in characters of the longest g_usage[].option string.
+ */
 static int	max_option_len(void)
 {
     int	max;
@@ -286,10 +373,14 @@ static int	max_option_len(void)
     return (max);
 }
 
-/*
-** Prints one help row: the option text, padded to `col`, then its
-** description.
-*/
+/**
+ * @brief Prints one row of the -? help listing: the option text, padded
+ * to a fixed column, then its description.
+ *
+ * @param option The flag text, e.g. "-l, --preload=NUMBER".
+ * @param desc   The one-line description shown after it.
+ * @param col    Column to pad option out to (from max_option_len() + 2).
+ */
 static void	print_option(const char *option, const char *desc, int col)
 {
     int	pad;
@@ -301,9 +392,15 @@ static void	print_option(const char *option, const char *desc, int col)
     ft_printf("%s\n", desc);
 }
 
-/*
-** Prints usage information and terminates.
-*/
+/**
+ * @brief Prints usage information and terminates the program.
+ *
+ * exit_code 0 (from -?/--help) prints the full option listing;
+ * any other value prints a short one-line usage hint - used both for
+ * -? itself and for every parse-error path, which always exit(1).
+ *
+ * @param exit_code Passed straight to exit() after printing.
+ */
 void	print_usage(int exit_code)
 {
     int	col;

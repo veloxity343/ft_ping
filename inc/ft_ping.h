@@ -59,14 +59,6 @@ typedef struct s_opts
 }	t_opts;
 
 /*
-** numeric (-n) only ever suppresses reverse-DNS lookup of a reply's
-** source address in canonical ping. The mandatory subject requires
-** we never do that lookup regardless, so there is nothing left for
-** -n to toggle here; it is parsed and accepted for compatibility but
-** has no additional effect.
-*/
-
-/*
 ** Help table and fully-formatted flag text
 */
 typedef struct s_usage
@@ -88,6 +80,38 @@ typedef struct s_stats
 	double	rtt_sum;
 	double	rtt_sum2;
 }	t_stats;
+
+/**
+ * @brief Decoded IP Timestamp option (RFC 791) pulled from a reply's IP
+ * header, produced by parse_ip_timestamp_reply() and consumed by
+ * print_ip_timestamp_option().
+ *
+ * @var present  1 if a timestamp option was found in the reply, else 0;
+ *               every other field is only meaningful when this is 1.
+ * @var tsaddr   1 if the option is address+timestamp (tsaddr), 0 if
+ *               timestamp-only (tsonly).
+ * @var count    Number of filled slots, 0-9 for tsonly, 0-4 for tsaddr.
+ * @var overflow Count of hosts that had no room left to record a
+ *               timestamp (the option's overflow nibble), 0-15.
+ * @var addrs    Recorded addresses (tsaddr only), raw network byte order
+ *               (ready for inet_ntoa/getnameinfo, no host-order conversion
+ *               needed or wanted here).
+ * @var times    Recorded timestamps, host byte order: bits 0-30 are
+ *               milliseconds since midnight UT (RFC 791) and bit 31
+ *               marks a non-standard clock source, one raw value per
+ *               filled slot exactly as canonical's ping_cvt_time()
+ *               interprets it (see print_ts_value(), output.c) - not
+ *               pre-masked or converted here.
+ */
+typedef struct s_ts_option
+{
+	int				present;
+	int				tsaddr;
+	int				count;
+	int				overflow;
+	unsigned int	addrs[9];
+	unsigned int	times[9];
+}	t_ts_option;
 
 /*
 ** Global ping context. Relies on process-wide state so sigint
@@ -117,6 +141,7 @@ void	print_usage(int exit_code);
 
 /* resolve.c */
 int		resolve_target(const char *target);
+int		resolve_reverse(struct in_addr addr, char *buf, size_t buflen);
 
 /* socket.c */
 int		open_socket(void);
@@ -131,6 +156,7 @@ void	print_start_banner(void);
 void	print_reply(int bytes, int seq, int ttl, double rtt, int dup);
 void	print_statistics(void);
 void	print_icmp_error(const char *from_ip, int seq, int type, int code);
+void	print_ip_timestamp_option(const t_ts_option *ts);
 
 /* utils.c */
 void	sigint_handler(int signo);
