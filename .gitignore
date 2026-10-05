@@ -1,0 +1,30 @@
+# Build outputs
+ft_ping
+obj/
+libft/obj/
+libft/libft.a
+*.o
+*.a
+*.d
+
+# Debug / sanitizer / profiling output
+*.dSYM/
+core
+core.*
+vgcore.*
+*.gcda
+*.gcno
+
+# Local scratch and test logs
+*.log
+*.tmp
+
+# Shell scripts (local test harnesses, not part of the submission)
+*.sh
+
+# Editor / OS noise
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
