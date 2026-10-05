@@ -43,7 +43,7 @@ typedef struct s_opts
 {
 	int				verbose;          // -v
 	int				flood;            // -f (root only; moot, raw socket already needs root)
-	int				numeric;          // -n (accepted, no-op: see note below)
+	int				numeric;          // -n (no reverse DNS for tsaddr addrs)
 	int				ttl;              // --ttl
 	int				preload;          // -l
 	int				pattern_set;      // -p

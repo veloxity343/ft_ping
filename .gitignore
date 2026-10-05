@@ -19,7 +19,7 @@ vgcore.*
 *.log
 *.tmp
 
-# Shell scripts (local test harnesses, not part of the submission)
+# Shell scripts
 *.sh
 
 # Editor / OS noise
