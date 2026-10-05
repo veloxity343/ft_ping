@@ -31,7 +31,10 @@ void	print_start_banner(void)
  * @param bytes ICMP payload size of the reply (excludes the IP header).
  * @param seq   The reply's sequence number.
  * @param ttl   TTL of the reply's IP header, as it arrived here.
- * @param rtt   Round-trip time in milliseconds.
+ * @param rtt   Round-trip time in milliseconds, or a negative value when
+ *              the reply was not timed (-s below 16: no room for the
+ *              embedded timestamp), in which case the " time=" field is
+ *              left out, as canonical does.
  * @param dup   1 if this reply is a duplicate (see seq_seen(), icmp.c),
  *              else 0.
  */
@@ -42,8 +45,10 @@ void	print_reply(int bytes, int seq, int ttl, double rtt, int dup)
 		ft_printf("\b");
 		return ;
 	}
-	ft_printf("%d bytes from %s: icmp_seq=%d ttl=%d time=%.3f ms",
-		bytes, g_ping.ip_str, seq, ttl, rtt);
+	ft_printf("%d bytes from %s: icmp_seq=%d ttl=%d",
+		bytes, g_ping.ip_str, seq, ttl);
+	if (rtt >= 0.0)
+		ft_printf(" time=%.3f ms", rtt);
 	if (dup)
 		ft_printf(" (DUP!)");
 	ft_printf("\n");
@@ -72,21 +77,31 @@ static int	packet_loss_pct(void)
  *
  * stddev is the standard deviation of observed RTTs, computed from the
  * running sum and sum-of-squares (avoids keeping every individual
- * sample around) via sqrt(sum2/n - avg^2). Only called when at least
- * one reply was received (see print_statistics()), so the division by
- * stats.received here is always safe.
+ * sample around) via sqrt(sum2/n - avg^2). Every matched reply is timed
+ * into those sums, duplicates included (see update_rtt_stats(), icmp.c),
+ * so n is received + duplicates, not received alone - dividing by
+ * received only would skew the average and could drive the variance
+ * negative. Only called when at least one reply was received (see
+ * print_statistics()), so n is never 0. The variance is clamped at 0:
+ * floating-point rounding can leave it a hair below zero when every RTT
+ * is (nearly) identical, and sqrt() of that would print garbage.
  *
  * The subject explicitly exempts this line from needing to match
  * canonical's exact formatting.
  */
 static void	print_rtt_line(void)
 {
+	double	n;
 	double	avg;
+	double	var;
 	double	stddev;
 
-	avg = g_ping.stats.rtt_sum / g_ping.stats.received;
-	stddev = sqrt(g_ping.stats.rtt_sum2 / g_ping.stats.received
-			- avg * avg);
+	n = g_ping.stats.received + g_ping.stats.duplicates;
+	avg = g_ping.stats.rtt_sum / n;
+	var = g_ping.stats.rtt_sum2 / n - avg * avg;
+	if (var < 0.0)
+		var = 0.0;
+	stddev = sqrt(var);
 	ft_printf("round-trip min/avg/max/stddev = %.3f/%.3f/%.3f/%.3f ms\n",
 		g_ping.stats.rtt_min, avg, g_ping.stats.rtt_max, stddev);
 }
@@ -100,7 +115,8 @@ static void	print_rtt_line(void)
  * packet-loss percentage or (if received somehow exceeds transmitted -
  * a sanity trip-wire, not expected in normal operation) canonical's
  * "somebody is printing forged packets!" message, then the round-trip
- * line if at least one reply was received.
+ * line if at least one reply was received and timed (no round-trip line
+ * for -s below 16, where nothing is timed - as in canonical).
  */
 void	print_statistics(void)
 {
@@ -117,72 +133,199 @@ void	print_statistics(void)
 			ft_printf("%d%% packet loss", packet_loss_pct());
 	}
 	ft_printf("\n");
-	if (g_ping.stats.received > 0)
+	if (g_ping.stats.received > 0 && TIMING(g_ping.opts.packet_size))
 		print_rtt_line();
 }
 
 /**
- * @brief Maps an ICMP error (type, code) pair to a human-readable
- * description, for the -v/--verbose error display.
+ * One ICMP (type, code) pair and the text canonical prints for it.
+ * Type/code are the plain RFC 792 numbers (3 = destination unreachable,
+ * 5 = redirect, 11 = time exceeded) rather than the platform's ICMP_*
+ * macros, which are spelled differently on macOS.
+ */
+typedef struct s_icmp_code
+{
+	int			type;
+	int			code;
+	const char	*text;
+}	t_icmp_code;
+
+static const t_icmp_code	g_icmp_codes[] = {
+	{3, 0, "Destination Net Unreachable"},
+	{3, 1, "Destination Host Unreachable"},
+	{3, 2, "Destination Protocol Unreachable"},
+	{3, 3, "Destination Port Unreachable"},
+	{3, 4, "Fragmentation needed and DF set"},
+	{3, 5, "Source Route Failed"},
+	{3, 6, "Network Unknown"},
+	{3, 7, "Host Unknown"},
+	{3, 8, "Host Isolated"},
+	{3, 11, "Destination Network Unreachable At This TOS"},
+	{3, 12, "Destination Host Unreachable At This TOS"},
+	{3, 13, "Packet Filtered"},
+	{3, 14, "Precedence Violation"},
+	{3, 15, "Precedence Cutoff"},
+	{5, 0, "Redirect Network"},
+	{5, 1, "Redirect Host"},
+	{5, 2, "Redirect Type of Service and Network"},
+	{5, 3, "Redirect Type of Service and Host"},
+	{11, 0, "Time to live exceeded"},
+	{11, 1, "Frag reassembly time exceeded"},
+	{0, 0, NULL}
+};
+
+/**
+ * @brief Looks up the description for an ICMP (type, code) pair.
  *
- * @param type An ICMP type value (already confirmed to be one of the
- *             recognised error types by is_icmp_error_type(), icmp.c).
+ * @param type An ICMP type (3, 5 or 11 - the ones with a code table).
  * @param code The type-specific code value.
  * @return A static description string, or NULL if this exact
- *         type/code combination isn't specifically named (the caller
- *         falls back to printing the raw numbers in that case).
+ *         type/code combination isn't named in g_icmp_codes.
  */
-static const char	*icmp_error_desc(int type, int code)
+static const char	*icmp_code_text(int type, int code)
 {
-	if (type == ICMP_DEST_UNREACH)
+	int	i;
+
+	i = 0;
+	while (g_icmp_codes[i].text)
 	{
-		if (code == ICMP_NET_UNREACH)
-			return ("Destination Net Unreachable");
-		if (code == ICMP_HOST_UNREACH)
-			return ("Destination Host Unreachable");
-		if (code == ICMP_PROT_UNREACH)
-			return ("Destination Protocol Unreachable");
-		if (code == ICMP_PORT_UNREACH)
-			return ("Destination Port Unreachable");
-		return ("Destination Unreachable");
+		if (g_icmp_codes[i].type == type && g_icmp_codes[i].code == code)
+			return (g_icmp_codes[i].text);
+		i++;
 	}
-	if (type == ICMP_SOURCE_QUENCH)
-		return ("Source Quench");
-	if (type == ICMP_REDIRECT)
-		return ("Redirect");
-	if (type == ICMP_TIME_EXCEEDED)
-	{
-		if (code == ICMP_EXC_FRAGTIME)
-			return ("Frag reassembly time exceeded");
-		return ("Time to live exceeded");
-	}
-	if (type == ICMP_PARAMETERPROB)
-		return ("Parameter problem");
 	return (NULL);
 }
 
 /**
- * @brief Prints one non-echo-reply ICMP error message, under
- * -v/--verbose.
+ * @brief Prints the quoted original IP header of an ICMP error as
+ * canonical does: under -v a hex dump of its 20 fixed bytes, then (always)
+ * a labelled one-row table of its fields, with any IP options appended
+ * as hex.
  *
- * @param from_ip Numeric source address of the error message (never
- *                reverse-resolved - see the mandatory no-reverse-DNS
- *                requirement).
- * @param seq     The original request's sequence number this error
- *                refers to (from extract_original(), icmp.c).
- * @param type    The ICMP type of the error.
- * @param code    The ICMP code of the error.
+ * @param orig The embedded original datagram, starting at its IP header.
+ *             The caller guarantees the whole header (and 8 bytes past
+ *             it) is present.
  */
-void	print_icmp_error(const char *from_ip, int seq, int type, int code)
+static void	print_orig_ip_header(const unsigned char *orig)
 {
-	const char	*desc;
+	unsigned short	len;
+	unsigned short	id;
+	unsigned short	off;
+	struct in_addr	addr;
+	int				i;
+	int				hlen;
 
-	desc = icmp_error_desc(type, code);
-	if (desc)
-		ft_printf("From %s icmp_seq=%d %s\n", from_ip, seq, desc);
+	hlen = (orig[0] & 0x0f) * 4;
+	if (g_ping.opts.verbose)
+	{
+		ft_printf("IP Hdr Dump:\n ");
+		i = 0;
+		while (i < (int)sizeof(struct ip))
+		{
+			ft_printf("%02x%s", orig[i], (i % 2) ? " " : "");
+			i++;
+		}
+		ft_printf("\n");
+	}
+	ft_printf("Vr HL TOS  Len   ID Flg  off TTL Pro  cks      Src\tDst\tData\n");
+	ft_memcpy(&len, orig + 2, 2);
+	if (len > 0x2000)
+		len = ntohs(len);
+	id = (unsigned short)((orig[4] << 8) | orig[5]);
+	off = (unsigned short)((orig[6] << 8) | orig[7]);
+	ft_printf(" %1x  %1x  %02x %04x %04x", orig[0] >> 4, orig[0] & 0x0f,
+		orig[1], len, id);
+	ft_printf("   %1x %04x  %02x  %02x %04x", (off & 0xe000) >> 13,
+		off & 0x1fff, orig[8], orig[9], (orig[10] << 8) | orig[11]);
+	ft_memcpy(&addr, orig + 12, 4);
+	ft_printf(" %s ", inet_ntoa(addr));
+	ft_memcpy(&addr, orig + 16, 4);
+	ft_printf(" %s ", inet_ntoa(addr));
+	i = (int)sizeof(struct ip);
+	while (i < hlen)
+		ft_printf("%02x", orig[i++]);
+	ft_printf("\n");
+}
+
+/**
+ * @brief Prints the quoted original datagram of an ICMP error: its IP
+ * header (see print_orig_ip_header()) followed, for TCP, UDP and ICMP, by
+ * one line naming the ports or the ICMP type/code (and, for an echo, its
+ * id and sequence number).
+ *
+ * @param orig The embedded original datagram, starting at its IP header.
+ */
+static void	print_orig_datagram(const unsigned char *orig)
+{
+	const unsigned char	*cp;
+	int					hlen;
+	int					total;
+
+	print_orig_ip_header(orig);
+	hlen = (orig[0] & 0x0f) * 4;
+	total = (orig[2] << 8) | orig[3];
+	cp = orig + hlen;
+	if (orig[9] == IPPROTO_TCP || orig[9] == IPPROTO_UDP)
+		ft_printf("%s: from port %u, to port %u (decimal)\n",
+			(orig[9] == IPPROTO_TCP) ? "TCP" : "UDP",
+			cp[0] * 256 + cp[1], cp[2] * 256 + cp[3]);
+	else if (orig[9] == IPPROTO_ICMP)
+	{
+		ft_printf("ICMP: type %u, code %u, size %u", cp[0], cp[1],
+			total - hlen);
+		if (cp[0] == ICMP_ECHOREPLY || cp[0] == ICMP_ECHO)
+			ft_printf(", id 0x%04x, seq 0x%04x", cp[4] * 256 + cp[5],
+				cp[6] * 256 + cp[7]);
+		ft_printf("\n");
+	}
+}
+
+/**
+ * @brief Prints one non-echo-reply ICMP error message in canonical's
+ * format: "N bytes from <addr>: <description>", followed - under -v - by
+ * the quoted original datagram.
+ *
+ * Destination unreachable, redirect and time exceeded are described by
+ * (type, code) via g_icmp_codes ("<kind>, Unknown Code: N" if the code
+ * isn't listed). Source quench and parameter problem have fixed texts
+ * and always show the quoted datagram, as canonical does.
+ *
+ * @param from_ip  Numeric source address of the error message (never
+ *                 reverse-resolved - see the mandatory no-reverse-DNS
+ *                 requirement).
+ * @param icmp_len Size of the ICMP message (outer IP header excluded).
+ * @param icmp_hdr The error's ICMP header.
+ * @param orig     The embedded original datagram, starting at its IP
+ *                 header (validated by the caller, icmp.c).
+ */
+void	print_icmp_error(const char *from_ip, int icmp_len,
+		const struct icmphdr *icmp_hdr, const unsigned char *orig)
+{
+	const char		*text;
+	struct in_addr	gw;
+
+	ft_printf("%d bytes from %s: ", icmp_len, from_ip);
+	if (icmp_hdr->type == ICMP_SOURCE_QUENCH)
+		ft_printf("Source Quench\n");
+	else if (icmp_hdr->type == ICMP_PARAMETERPROB)
+	{
+		gw.s_addr = icmp_hdr->un.gateway;
+		ft_printf("Parameter problem: IP address = %s\n", inet_ntoa(gw));
+	}
 	else
-		ft_printf("From %s icmp_seq=%d ICMP type %d code %d\n",
-			from_ip, seq, type, code);
+	{
+		text = icmp_code_text(icmp_hdr->type, icmp_hdr->code);
+		if (text)
+			ft_printf("%s\n", text);
+		else
+			ft_printf("%s, Unknown Code: %d\n",
+				(icmp_hdr->type == ICMP_DEST_UNREACH) ? "Dest Unreachable"
+				: (icmp_hdr->type == ICMP_REDIRECT) ? "Redirect"
+				: "Time exceeded", icmp_hdr->code);
+	}
+	if (icmp_hdr->type == ICMP_SOURCE_QUENCH
+		|| icmp_hdr->type == ICMP_PARAMETERPROB || g_ping.opts.verbose)
+		print_orig_datagram(orig);
 }
 
 /**

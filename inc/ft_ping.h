@@ -66,13 +66,14 @@ struct icmphdr
 /* Constants */
 # define PROG_NAME			"ft_ping"
 # define PACKET_SIZE		64
-# define MAX_PACKET			4096
+# define MAX_PACKET			65407 /* largest ICMP packet: 65399 data bytes + 8-byte header, as canonical allows */
 # define MAX_RECV_PACKET	(MAX_PACKET + 128)
 # define DEFAULT_TTL		64
 # define DEFAULT_TIMEOUT	1
 # define DEFAULT_INTERVAL	1
 # define FLOOD_POLL_MS		10
 # define MIN_PACKET_SIZE	((int)(sizeof(struct icmphdr) + sizeof(struct timeval)))
+# define TIMING(size)		((size) >= MIN_PACKET_SIZE) /* room for the embedded timestamp */
 # define DUP_BITMAP_BYTES	8192 /* one bit per possible 16-bit ICMP seq */
 
 /* Command-line options */
@@ -192,7 +193,8 @@ int				receive_ping(void);
 void	print_start_banner(void);
 void	print_reply(int bytes, int seq, int ttl, double rtt, int dup);
 void	print_statistics(void);
-void	print_icmp_error(const char *from_ip, int seq, int type, int code);
+void	print_icmp_error(const char *from_ip, int icmp_len,
+			const struct icmphdr *icmp_hdr, const unsigned char *orig);
 void	print_ip_timestamp_option(const t_ts_option *ts);
 
 /* utils.c */

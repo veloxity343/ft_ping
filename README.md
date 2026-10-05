@@ -82,17 +82,27 @@ round-trip min/avg/max/stddev = 0.037/0.037/0.037/0.000 ms
 ```
 
 `-v` with a TTL too small to reach the target reports the ICMP error and keeps
-running (the first router answers `Time to live exceeded`):
+running (the first router answers `Time to live exceeded`). Under `-v` the
+quoted original request is shown too: a hex dump of its IP header, a table of
+its fields, and what it carried:
 
 ```text
-$ sudo ./ft_ping --ttl 1 -v -w 3 8.8.8.8
-PING 8.8.8.8 (8.8.8.8): 56 data bytes, id 0xab8c = 43916
-From 172.28.96.1 icmp_seq=1 Time to live exceeded
-From 172.28.96.1 icmp_seq=2 Time to live exceeded
-From 172.28.96.1 icmp_seq=3 Time to live exceeded
---- 8.8.8.8 ping statistics ---
-3 packets transmitted, 0 packets received, 100% packet loss
+$ sudo ./ft_ping --ttl 1 -v -w 1 10.77.2.5
+PING 10.77.2.5 (10.77.2.5): 56 data bytes, id 0xc153 = 49491
+92 bytes from 10.77.1.2: Time to live exceeded
+IP Hdr Dump:
+ 4500 0054 930d 4000 0101 cefc 0a4d 0101 0a4d 0205 
+Vr HL TOS  Len   ID Flg  off TTL Pro  cks      Src	Dst	Data
+ 4  5  00 0054 930d   2 0000  01  01 cefc 10.77.1.1  10.77.2.5 
+ICMP: type 8, code 0, size 64, id 0xc153, seq 0x0001
+--- 10.77.2.5 ping statistics ---
+1 packets transmitted, 0 packets received, 100% packet loss
 ```
+
+Without `-v`, an error about a request sent to the target still prints its
+first line (`92 bytes from 10.77.1.2: Time to live exceeded`), as in
+inetutils; `-v` adds the detail above and also reports errors about requests
+sent to any other destination.
 
 `--ip-timestamp` prints the timestamps recorded in the reply, as raw
 milliseconds since midnight UT:
@@ -127,7 +137,7 @@ PING 127.0.0.1 (127.0.0.1): 56 data bytes
 
 | Option | Description |
 |:--|:--|
-| `-v`, `--verbose` | Report non-echo-reply ICMP messages, such as destination unreachable and time exceeded, instead of discarding them silently. The program continues running. |
+| `-v`, `--verbose` | Report non-echo-reply ICMP messages, such as destination unreachable and time exceeded, with the quoted original request, instead of only the one-line form. The program continues running. |
 | `-?`, `--help` | Print usage information and exit. |
 
 ### Bonus
@@ -139,7 +149,7 @@ PING 127.0.0.1 (127.0.0.1): 56 data bytes
 | `-n`, `--numeric` | Do not reverse-resolve the addresses recorded by `--ip-timestamp=tsaddr`: they print as plain IPs. Without `-n` they are resolved to a hostname when possible. Reply lines never show a resolved name either way. |
 | `-p`, `--pattern=PATTERN` | Fill the ICMP payload with the given hex byte pattern instead of the default incrementing fill. |
 | `-r`, `--ignore-routing` | Bypass the normal routing tables (`SO_DONTROUTE`). Only directly attached hosts can be reached; any other target sends nothing. |
-| `-s`, `--size=NUMBER` | Set the number of data octets to send (default `56`, maximum `4088`). |
+| `-s`, `--size=NUMBER` | Set the number of data octets to send (default `56`, maximum `65399`, as in canonical). Below 16 there is no room for the embedded send timestamp, so replies print without `time=` and the `round-trip` line is omitted, as in canonical. |
 | `-T`, `--tos=NUM` | Set the IP type-of-service field. |
 | `--ttl=N` | Set the IP time-to-live field (default `64`). |
 | `-w`, `--timeout=N` | Stop after `N` seconds, regardless of how many packets have been sent or received. |
@@ -224,7 +234,10 @@ seconds.
 
 ## Differences from inetutils
 
-Everything below is deliberate or a known limitation, not an unnoticed gap.
+The subject requires matching inetutils-2.0 for the reply, banner, statistics
+and `-v` output, and that part is compared line by line (see
+[Validation](#validation)). The items below are the known differences, each
+either deliberate or outside what the subject asks for.
 
 | Area | inetutils | ft_ping |
 |:--|:--|:--|
@@ -234,6 +247,9 @@ Everything below is deliberate or a known limitation, not an unnoticed gap.
 | `-R`, `-V`, `--usage`, `--echo`, `--type` | Supported | Not implemented |
 | Record route | `-R` records and prints the route | Not implemented (`-r` is `--ignore-routing`, a different option) |
 | Address family | IPv4 and IPv6 (`ping6`) | IPv4 only |
+| `-?` text | Full help with every option | Lists only the options implemented here |
+| Error messages | Written to stderr, e.g. ``ping: invalid value (`abc' near `abc')`` | Written to stdout as `ft_ping: invalid argument 'abc' for '--size'`, then a usage hint |
+| `-p` pattern | Longer patterns accepted | At most 16 bytes (32 hex digits) |
 | Reply source | May be reverse-resolved to a name | Always the plain IP, as the subject requires |
 
 ## Exit codes
@@ -243,6 +259,10 @@ Everything below is deliberate or a known limitation, not an unnoticed gap.
 | `0` | Normal run, or `-?` |
 | `1` | Invalid option or argument, missing host, or a socket or `setsockopt` failure (including missing privileges) |
 | `2` | The host name could not be resolved |
+
+Canonical differs here: it exits `1` when no reply was received or the host is
+unknown, and `64` for a usage error. This implementation exits `0` after any
+normal run, whether or not replies arrived.
 
 ## Project layout
 
@@ -269,7 +289,12 @@ Test suite:
 
 - **Equivalence:** the verbose banner is byte-identical to inetutils once the
   PID-derived id is masked, and the `--ip-timestamp=tsonly` `TS:` block has the
-  same structure. Every flag was compared side by side on loopback.
+  same structure. Beyond that, the default run, `-p`, `-l`, `--ttl`/`-T`,
+  `--ip-timestamp=tsaddr` (with and without `-n`), `-s` from 0 to 65399 and
+  the ICMP error output (one-line and `-v` forms, for TTL expiry and no
+  route, on a private client/router network) are each diffed against the real binary with only
+  seq/ttl/time and packet counts masked. Bad option values are rejected by
+  both programs with the same exit status.
 - **Wire level:** with `tcpdump -vv`, a plain request is 84 bytes with no IP
   options, and with `--ip-timestamp` it is 124 bytes carrying a decoded `TS`
   option on both the request and the reply.
@@ -296,5 +321,5 @@ sudo ./ft_ping -l 5 -w 2 127.0.0.1                        # 7 transmitted, 7 rec
 sudo ./ft_ping -f -w 1 127.0.0.1 | cat -v                 # dot/backspace pairs
 sudo ./ft_ping --ip-timestamp=tsaddr -n -w 1 127.0.0.1    # numeric address in TS: block
 sudo ./ft_ping --ip-timestamp=tsaddr -w 1 127.0.0.1       # resolved to "localhost"
-./ft_ping -s 4089 127.0.0.1                               # rejected: over the 4088 maximum
+./ft_ping -s 65400 127.0.0.1                              # rejected: over the 65399 maximum
 ```

@@ -46,17 +46,18 @@ static const t_usage	g_usage[] = {
 };
 
 /**
- * @brief Checks argv directly for a literal "-?" token.
+ * @brief Checks argv directly for a literal "-?" or "--help" token.
  *
  * getopt_long() cannot cleanly distinguish a genuine "-?" flag from its
  * own "unrecognised option" return code, since both resolve to the
  * character '?'. Rather than fight that ambiguity, argv is scanned
  * directly before getopt_long() ever runs, and a literal "-?" is treated
- * as an immediate request for help.
+ * as an immediate request for help. "--help" is its long form and is
+ * matched the same way, so both print the same text.
  *
  * @param argc Argument count.
  * @param argv Argument vector.
- * @return 1 if "-?" appears anywhere in argv, else 0.
+ * @return 1 if "-?" or "--help" appears anywhere in argv, else 0.
  */
 static int	has_help_flag(int argc, char **argv)
 {
@@ -65,7 +66,7 @@ static int	has_help_flag(int argc, char **argv)
     i = 1;
     while (i < argc)
     {
-        if (ft_strcmp(argv[i], "-?") == 0)
+        if (ft_strcmp(argv[i], "-?") == 0 || ft_strcmp(argv[i], "--help") == 0)
             return (1);
         i++;
     }
@@ -225,11 +226,7 @@ static void	parse_valued_opt(int opt, const char *optname, const char *arg)
         g_ping.opts.linger = val;
     else if (opt == 's'
         && parse_uint_arg(arg, MAX_PACKET - (int)sizeof(struct icmphdr), &val))
-    {
-        if (val < (int)sizeof(struct timeval))
-            val = (int)sizeof(struct timeval);
         g_ping.opts.packet_size = val + (int)sizeof(struct icmphdr);
-    }
     else if (opt == 'T' && parse_uint_arg(arg, 255, &val))
         g_ping.opts.tos = val;
     else if (opt == OPT_TTL && parse_uint_arg(arg, 255, &val) && val > 0)

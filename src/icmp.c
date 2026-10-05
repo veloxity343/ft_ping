@@ -37,12 +37,15 @@ unsigned short	icmp_checksum(void *buf, int len)
 /**
  * @brief Fills the ICMP payload (everything after the 8-byte header).
  *
- * The first sizeof(struct timeval) bytes are the current time, written
- * in place via gettimeofday() directly into the packet buffer - this is
- * read back on the matching reply to compute RTT (see receive_ping()).
- * Everything after that is either the user's -p/--pattern bytes, cycled
- * to fill the remaining space, or (default) an incrementing byte value,
- * matching canonical ping's default fill data.
+ * When the packet is large enough (TIMING(packet_size), i.e. at least
+ * 16 data bytes), the first sizeof(struct timeval) bytes are the current
+ * time, written in place via gettimeofday() directly into the packet
+ * buffer - this is read back on the matching reply to compute RTT (see
+ * receive_ping()). With -s below 16 there is no room for it, so the
+ * payload is all fill and replies are simply not timed, as in canonical.
+ * The rest is either the user's -p/--pattern bytes, cycled to fill the
+ * remaining space, or (default) an incrementing byte value, matching
+ * canonical ping's default fill data.
  *
  * @param packet The packet buffer, already sized to g_ping.opts.
  *               packet_size by the caller (send_ping()).
@@ -52,8 +55,12 @@ static void	fill_payload(unsigned char *packet)
 	int	i;
 	int	pattern_idx;
 
-	gettimeofday((struct timeval *)(packet + sizeof(struct icmphdr)), NULL);
-	i = sizeof(struct icmphdr) + sizeof(struct timeval);
+	i = sizeof(struct icmphdr);
+	if (TIMING(g_ping.opts.packet_size))
+	{
+		gettimeofday((struct timeval *)(packet + i), NULL);
+		i += sizeof(struct timeval);
+	}
 	pattern_idx = 0;
 	while (i < g_ping.opts.packet_size)
 	{
@@ -101,9 +108,10 @@ static int	validate_ip_icmp_packet(const unsigned char *buffer, ssize_t bytes,
 
 /**
  * @brief Checks whether a received packet is large enough to contain the
- * embedded struct timeval this program's own echo requests always send
- * (see fill_payload()) - i.e. whether an RTT can actually be computed
- * from it.
+ * embedded struct timeval this program's own echo requests send when
+ * TIMING() is true (see fill_payload()) - i.e. whether an RTT can
+ * actually be computed from it. Only consulted for timed runs; with
+ * -s below 16 no timestamp is sent, so none is expected back.
  *
  * @param bytes      Number of bytes actually received.
  * @param ip_hdr_len The IP header length, as found by
@@ -328,22 +336,17 @@ static int	wait_for_icmp_packet(void)
  *
  * On success, increments g_ping.stats.transmitted and g_ping.seq.
  *
- * @return 0 on success, -1 on failure (packet size misconfigured, or
- *         sendto() failed) - stats/seq are left untouched on failure.
+ * @return 0 on success, -1 if sendto() failed - stats/seq are left
+ *         untouched on failure.
  */
 int	send_ping(void)
 {
 	unsigned char	packet[MAX_PACKET];
 	struct icmphdr	*icmp_hdr;
 
-	if (g_ping.opts.packet_size < MIN_PACKET_SIZE)
-	{
-		ft_printf("%s: packet size too small\n", PROG_NAME);
-		return (-1);
-	}
 	if ((unsigned short)g_ping.seq == 0)
 		ft_memset(g_ping.dup_seen, 0, sizeof(g_ping.dup_seen));
-	ft_memset(packet, 0, sizeof(packet));
+	ft_memset(packet, 0, g_ping.opts.packet_size);
 	icmp_hdr = (struct icmphdr *)packet;
 	icmp_hdr->type = ICMP_ECHO;
 	icmp_hdr->code = 0;
@@ -389,8 +392,7 @@ static void	update_rtt_stats(double rtt)
 
 /**
  * @brief Checks whether an ICMP type is one of the non-echo-reply error
- * messages this program reports under -v/--verbose (see
- * handle_icmp_error()).
+ * messages this program reports (see handle_icmp_error()).
  *
  * @param type An ICMP type value from a received packet's header.
  * @return 1 if type is a recognised error type, else 0.
@@ -403,52 +405,52 @@ static int	is_icmp_error_type(int type)
 }
 
 /**
- * @brief Extracts our own sequence number from an ICMP error message's
- * embedded copy of the original request.
+ * @brief Checks that an ICMP error message's embedded copy of the
+ * original datagram is one of our own echo requests.
  *
  * Per RFC 792, ICMP error messages (destination unreachable, time
  * exceeded, etc.) embed the original IP header plus the first 8 bytes of
  * the original datagram - enough to contain our own ICMP echo header,
  * letting us confirm the error really is about one of our own requests
- * (by id) and report which one (by sequence).
+ * (by id), not another ping's.
  *
  * @param payload     Pointer to the start of the embedded original
  *                    datagram, inside the received error packet.
  * @param payload_len Bytes available at payload (bounded by how much of
  *                    the original packet the error message included).
- * @param seq         Out: set to the original request's sequence number
- *                    on success.
  * @return 1 if payload contained a recognisable copy of one of our own
  *         echo requests (matching id), else 0.
  */
-static int	extract_original(unsigned char *payload, int payload_len,
-		int *seq)
+static int	is_our_original(const unsigned char *payload, int payload_len)
 {
-	struct ip		*inner_ip;
-	struct icmphdr	*inner_icmp;
-	int				inner_ip_len;
+	const struct ip		*inner_ip;
+	const struct icmphdr	*inner_icmp;
+	int					inner_ip_len;
 
 	if (payload_len < (int)sizeof(struct ip))
 		return (0);
-	inner_ip = (struct ip *)payload;
+	inner_ip = (const struct ip *)payload;
 	inner_ip_len = inner_ip->ip_hl * 4;
-	if (payload_len < inner_ip_len + (int)sizeof(struct icmphdr))
+	if (inner_ip_len < (int)sizeof(struct ip)
+		|| payload_len < inner_ip_len + (int)sizeof(struct icmphdr))
 		return (0);
-	inner_icmp = (struct icmphdr *)(payload + inner_ip_len);
-	if (ntohs(inner_icmp->un.echo.id) != (unsigned short)g_ping.pid)
+	inner_icmp = (const struct icmphdr *)(payload + inner_ip_len);
+	if (inner_ip->ip_p != IPPROTO_ICMP
+		|| ntohs(inner_icmp->un.echo.id) != (unsigned short)g_ping.pid)
 		return (0);
-	*seq = ntohs(inner_icmp->un.echo.sequence);
 	return (1);
 }
 
 /**
- * @brief Reports one non-echo-reply ICMP message, if -v/--verbose is
- * set and it can be confirmed to be about one of our own requests.
+ * @brief Reports one non-echo-reply ICMP error message, if it can be
+ * confirmed to be about one of our own requests.
  *
  * This is the mandatory-requirement behaviour: "-v ... also allow us to
  * see the results in case of a problem or error linked to the packets,
- * which logically shouldn't force the program to stop." Silently
- * ignored (returns immediately) unless -v is set; the caller
+ * which logically shouldn't force the program to stop." Like canonical,
+ * an error about a request sent to our target is shown even without -v
+ * (as a single line); -v additionally shows errors about requests to any
+ * other destination and the quoted original datagram. The caller
  * (receive_ping()) always continues its wait loop afterwards regardless,
  * so an error reply never halts the program.
  *
@@ -463,16 +465,21 @@ static int	extract_original(unsigned char *payload, int payload_len,
 static void	handle_icmp_error(struct icmphdr *icmp_hdr, unsigned char *buffer,
 		int bytes, int ip_hdr_len, struct sockaddr_in *from)
 {
-	int		seq;
-	char	from_ip[INET_ADDRSTRLEN];
+	const unsigned char	*orig;
+	int					orig_len;
+	struct ip			inner_ip;
+	char				from_ip[INET_ADDRSTRLEN];
 
-	if (!g_ping.opts.verbose)
+	orig = buffer + ip_hdr_len + sizeof(struct icmphdr);
+	orig_len = bytes - ip_hdr_len - (int)sizeof(struct icmphdr);
+	if (!is_our_original(orig, orig_len))
 		return ;
-	if (!extract_original(buffer + ip_hdr_len + sizeof(struct icmphdr),
-			bytes - ip_hdr_len - (int)sizeof(struct icmphdr), &seq))
+	ft_memcpy(&inner_ip, orig, sizeof(inner_ip));
+	if (!g_ping.opts.verbose
+		&& inner_ip.ip_dst.s_addr != g_ping.dest_addr.sin_addr.s_addr)
 		return ;
 	inet_ntop(AF_INET, &from->sin_addr, from_ip, sizeof(from_ip));
-	print_icmp_error(from_ip, seq, icmp_hdr->type, icmp_hdr->code);
+	print_icmp_error(from_ip, bytes - ip_hdr_len, icmp_hdr, orig);
 }
 
 /**
@@ -495,7 +502,10 @@ static void	handle_icmp_error(struct icmphdr *icmp_hdr, unsigned char *buffer,
  * On a successful match: records the RTT, updates
  * stats.received/duplicates, prints the reply line (print_reply()), and
  * - if --ip-timestamp was requested - parses and prints any IP
- * Timestamp option the reply carried.
+ * Timestamp option the reply carried. The RTT is only measured when the
+ * request carried an embedded timestamp (TIMING(packet_size), i.e.
+ * -s 16 or more); below that the reply is passed on untimed (rtt of
+ * -1.0), matching canonical, which shows no time= for tiny payloads.
  *
  * @return 0 if a reply was matched and processed, -1 on timeout, a
  *         signal interrupting the wait, or a socket error.
@@ -542,16 +552,22 @@ int	receive_ping(void)
 		if (ntohs(icmp_hdr->un.echo.id) == (unsigned short)g_ping.pid
 			&& from.sin_addr.s_addr == g_ping.dest_addr.sin_addr.s_addr)
 		{
-			if (!has_timestamp_payload(bytes, ip_hdr_len))
+			if (TIMING(g_ping.opts.packet_size)
+				&& !has_timestamp_payload(bytes, ip_hdr_len))
 				continue ;
 			break ;
 		}
 	}
-	sent_tv = (struct timeval *)(buffer + ip_hdr_len + sizeof(struct icmphdr));
-	gettimeofday(&now, NULL);
-	rtt = timeval_diff_ms(sent_tv, &now);
+	rtt = -1.0;
+	if (TIMING(g_ping.opts.packet_size))
+	{
+		sent_tv = (struct timeval *)(buffer + ip_hdr_len + sizeof(struct icmphdr));
+		gettimeofday(&now, NULL);
+		rtt = timeval_diff_ms(sent_tv, &now);
+	}
 	seq = ntohs(icmp_hdr->un.echo.sequence);
-	update_rtt_stats(rtt);
+	if (rtt >= 0.0)
+		update_rtt_stats(rtt);
 	dup = seq_seen((unsigned short)seq);
 	if (dup)
 		g_ping.stats.duplicates++;
