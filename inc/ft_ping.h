@@ -66,7 +66,7 @@ struct icmphdr
 /* Constants */
 # define PROG_NAME			"ft_ping"
 # define PACKET_SIZE		64
-# define MAX_PACKET			65407 /* largest ICMP packet: 65399 data bytes + 8-byte header, as canonical allows */
+# define MAX_PACKET			65407 /* 65399 data bytes + 8 header, same cap as canonical */
 # define MAX_RECV_PACKET	(MAX_PACKET + 128)
 # define DEFAULT_TTL		64
 # define DEFAULT_TIMEOUT	1
@@ -120,35 +120,16 @@ typedef struct s_stats
 }	t_stats;
 
 /**
- * @brief Decoded IP Timestamp option (RFC 791) pulled from a reply's IP
- * header, produced by parse_ip_timestamp_reply() and consumed by
- * print_ip_timestamp_option().
- *
- * @var present  1 if a timestamp option was found in the reply, else 0;
- *               every other field is only meaningful when this is 1.
- * @var tsaddr   1 if the option is address+timestamp (tsaddr), 0 if
- *               timestamp-only (tsonly).
- * @var count    Number of filled slots, 0-9 for tsonly, 0-4 for tsaddr.
- * @var overflow Count of hosts that had no room left to record a
- *               timestamp (the option's overflow nibble), 0-15.
- * @var addrs    Recorded addresses (tsaddr only), raw network byte order
- *               (ready for inet_ntoa/getnameinfo, no host-order conversion
- *               needed or wanted here).
- * @var times    Recorded timestamps, host byte order: bits 0-30 are
- *               milliseconds since midnight UT (RFC 791) and bit 31
- *               marks a non-standard clock source, one raw value per
- *               filled slot exactly as canonical's ping_cvt_time()
- *               interprets it (see print_ts_value(), output.c) - not
- *               pre-masked or converted here.
+ * @brief The IP timestamp option decoded from a reply (RFC 791).
  */
 typedef struct s_ts_option
 {
-	int				present;
-	int				tsaddr;
-	int				count;
-	int				overflow;
-	unsigned int	addrs[9];
-	unsigned int	times[9];
+	int				present;     // 1 if the reply carried the option
+	int				tsaddr;      // 1 = tsaddr, 0 = tsonly
+	int				count;       // filled slots (max 9 tsonly, 4 tsaddr)
+	int				overflow;    // hosts that had no room left
+	unsigned int	addrs[9];    // recorded addresses, network order
+	unsigned int	times[9];    // raw values, host order (bit 31 = non-standard clock)
 }	t_ts_option;
 
 /*

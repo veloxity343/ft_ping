@@ -1,13 +1,7 @@
 #include "ft_ping.h"
 
 /**
- * @brief Prints the "PING host (ip): N data bytes" banner, once before
- * the send/receive loop starts.
- *
- * The byte count shown is the payload size (packet_size minus the
- * 8-byte ICMP header), matching what canonical labels "data bytes".
- * Under -v/--verbose, also shows our own ICMP identifier (PID,
- * truncated to 16 bits) - matching canonical's verbose banner exactly.
+ * @brief Prints the PING line: host, ip, data bytes, and the id under -v.
  */
 void	print_start_banner(void)
 {
@@ -20,23 +14,8 @@ void	print_start_banner(void)
 }
 
 /**
- * @brief Prints one reply's line: "N bytes from ip: icmp_seq=S ttl=T
- * time=R ms", with " (DUP!)" appended if this is a repeat of an
- * already-counted reply.
- *
- * Under -f/--flood this collapses to a single backspace instead,
- * erasing one of the dots printed at send time (main.c) - dup or not,
- * canonical doesn't distinguish them in flood output either.
- *
- * @param bytes ICMP payload size of the reply (excludes the IP header).
- * @param seq   The reply's sequence number.
- * @param ttl   TTL of the reply's IP header, as it arrived here.
- * @param rtt   Round-trip time in milliseconds, or a negative value when
- *              the reply was not timed (-s below 16: no room for the
- *              embedded timestamp), in which case the " time=" field is
- *              left out, as canonical does.
- * @param dup   1 if this reply is a duplicate (see seq_seen(), icmp.c),
- *              else 0.
+ * @brief Prints one reply line, with time= only if it was timed and (DUP!)
+ *        for duplicates. Under -f it is just a backspace.
  */
 void	print_reply(int bytes, int seq, int ttl, double rtt, int dup)
 {
@@ -55,14 +34,7 @@ void	print_reply(int bytes, int seq, int ttl, double rtt, int dup)
 }
 
 /**
- * @brief Computes packet loss as a whole-number percentage, truncated
- * (matching canonical's integer-division formula, not rounded).
- *
- * Based on unique replies only - stats.received never includes
- * duplicates (see receive_ping(), icmp.c), so this can't under-report
- * loss just because some replies were counted twice.
- *
- * @return 0-100. 0 if nothing was transmitted yet.
+ * @brief Packet loss as a whole percent, truncated.
  */
 static int	packet_loss_pct(void)
 {
@@ -73,21 +45,7 @@ static int	packet_loss_pct(void)
 }
 
 /**
- * @brief Prints the closing "round-trip min/avg/max/stddev" line.
- *
- * stddev is the standard deviation of observed RTTs, computed from the
- * running sum and sum-of-squares (avoids keeping every individual
- * sample around) via sqrt(sum2/n - avg^2). Every matched reply is timed
- * into those sums, duplicates included (see update_rtt_stats(), icmp.c),
- * so n is received + duplicates, not received alone - dividing by
- * received only would skew the average and could drive the variance
- * negative. Only called when at least one reply was received (see
- * print_statistics()), so n is never 0. The variance is clamped at 0:
- * floating-point rounding can leave it a hair below zero when every RTT
- * is (nearly) identical, and sqrt() of that would print garbage.
- *
- * The subject explicitly exempts this line from needing to match
- * canonical's exact formatting.
+ * @brief Prints the round-trip min/avg/max/stddev line.
  */
 static void	print_rtt_line(void)
 {
@@ -107,16 +65,7 @@ static void	print_rtt_line(void)
 }
 
 /**
- * @brief Prints the final summary block, once the send/receive loop
- * stops (deadline reached or SIGINT).
- *
- * Format matches canonical field-for-field: "N transmitted, M received,"
- * then an optional "+K duplicates," if any occurred, then either a
- * packet-loss percentage or (if received somehow exceeds transmitted -
- * a sanity trip-wire, not expected in normal operation) canonical's
- * "somebody is printing forged packets!" message, then the round-trip
- * line if at least one reply was received and timed (no round-trip line
- * for -s below 16, where nothing is timed - as in canonical).
+ * @brief Prints the closing statistics block.
  */
 void	print_statistics(void)
 {
@@ -138,10 +87,7 @@ void	print_statistics(void)
 }
 
 /**
- * One ICMP (type, code) pair and the text canonical prints for it.
- * Type/code are the plain RFC 792 numbers (3 = destination unreachable,
- * 5 = redirect, 11 = time exceeded) rather than the platform's ICMP_*
- * macros, which are spelled differently on macOS.
+ * @brief An ICMP type/code pair and its message text.
  */
 typedef struct s_icmp_code
 {
@@ -175,12 +121,8 @@ static const t_icmp_code	g_icmp_codes[] = {
 };
 
 /**
- * @brief Looks up the description for an ICMP (type, code) pair.
- *
- * @param type An ICMP type (3, 5 or 11 - the ones with a code table).
- * @param code The type-specific code value.
- * @return A static description string, or NULL if this exact
- *         type/code combination isn't named in g_icmp_codes.
+ * @brief Returns the message for an ICMP type/code, or NULL if it isn't
+ *        listed.
  */
 static const char	*icmp_code_text(int type, int code)
 {
@@ -197,14 +139,8 @@ static const char	*icmp_code_text(int type, int code)
 }
 
 /**
- * @brief Prints the quoted original IP header of an ICMP error as
- * canonical does: under -v a hex dump of its 20 fixed bytes, then (always)
- * a labelled one-row table of its fields, with any IP options appended
- * as hex.
- *
- * @param orig The embedded original datagram, starting at its IP header.
- *             The caller guarantees the whole header (and 8 bytes past
- *             it) is present.
+ * @brief Prints the IP header quoted in an ICMP error: a hex dump under -v,
+ *        then the labelled field row.
  */
 static void	print_orig_ip_header(const unsigned char *orig)
 {
@@ -228,6 +164,8 @@ static void	print_orig_ip_header(const unsigned char *orig)
 		ft_printf("\n");
 	}
 	ft_printf("Vr HL TOS  Len   ID Flg  off TTL Pro  cks      Src\tDst\tData\n");
+	/* Same byte-order guess as inetutils, so Len matches it even where it
+	** looks odd (1c00 for a 28 byte packet). Kept on purpose. */
 	ft_memcpy(&len, orig + 2, 2);
 	if (len > 0x2000)
 		len = ntohs(len);
@@ -248,12 +186,8 @@ static void	print_orig_ip_header(const unsigned char *orig)
 }
 
 /**
- * @brief Prints the quoted original datagram of an ICMP error: its IP
- * header (see print_orig_ip_header()) followed, for TCP, UDP and ICMP, by
- * one line naming the ports or the ICMP type/code (and, for an echo, its
- * id and sequence number).
- *
- * @param orig The embedded original datagram, starting at its IP header.
+ * @brief Prints the request quoted in an ICMP error: its IP header, then a
+ *        line for its TCP, UDP or ICMP content.
  */
 static void	print_orig_datagram(const unsigned char *orig)
 {
@@ -281,22 +215,8 @@ static void	print_orig_datagram(const unsigned char *orig)
 }
 
 /**
- * @brief Prints one non-echo-reply ICMP error message in canonical's
- * format: "N bytes from <addr>: <description>", followed - under -v - by
- * the quoted original datagram.
- *
- * Destination unreachable, redirect and time exceeded are described by
- * (type, code) via g_icmp_codes ("<kind>, Unknown Code: N" if the code
- * isn't listed). Source quench and parameter problem have fixed texts
- * and always show the quoted datagram, as canonical does.
- *
- * @param from_ip  Numeric source address of the error message (never
- *                 reverse-resolved - see the mandatory no-reverse-DNS
- *                 requirement).
- * @param icmp_len Size of the ICMP message (outer IP header excluded).
- * @param icmp_hdr The error's ICMP header.
- * @param orig     The embedded original datagram, starting at its IP
- *                 header (validated by the caller, icmp.c).
+ * @brief Prints an ICMP error as '<n> bytes from <addr>: <text>', plus the
+ *        quoted request under -v.
  */
 void	print_icmp_error(const char *from_ip, int icmp_len,
 		const struct icmphdr *icmp_hdr, const unsigned char *orig)
@@ -329,17 +249,8 @@ void	print_icmp_error(const char *from_ip, int icmp_len,
 }
 
 /**
- * @brief Formats one recorded timestamp exactly as canonical's
- * ping_cvt_time() does: bits 0-30 are the millisecond value, bit 31
- * marks a non-standard clock source (angle brackets around the value
- * signal that, per RFC 791) rather than being part of the count.
- *
- * Confirmed against inetutils 2.6 source (ping_common.c) - the name
- * suggests a clock-format conversion, but it does not convert to
- * HH:MM:SS; it just prints the raw millisecond count.
- *
- * @param raw The recorded value exactly as read off the wire (host byte
- *            order, un-masked - t_ts_option.times entries).
+ * @brief Prints one IP timestamp in ms, in angle brackets if the
+ *        non-standard clock bit is set.
  */
 static void	print_ts_value(unsigned int raw)
 {
@@ -353,14 +264,8 @@ static void	print_ts_value(unsigned int raw)
 }
 
 /**
- * @brief Prints the address for one tsaddr slot: the resolved hostname
- * followed by the numeric address in parentheses if -n allowed a
- * reverse lookup and it succeeded, otherwise just the numeric address.
- * No trailing separator - the timestamp printed right after supplies
- * its own leading tab.
- *
- * @param raw_addr Recorded address, network byte order (straight from
- *                 t_ts_option.addrs - do not host-order convert).
+ * @brief Prints a tsaddr slot's address as name (ip) when reverse DNS works
+ *        and -n isn't set, otherwise just the ip.
  */
 static void	print_ts_addr(unsigned int raw_addr)
 {
@@ -369,6 +274,7 @@ static void	print_ts_addr(unsigned int raw_addr)
 
 	addr.s_addr = raw_addr;
 	ft_printf("\t");
+	/* The lookup can block on a slow DNS, as in inetutils. -n skips it. */
 	if (resolve_reverse(addr, host, sizeof(host)))
 		ft_printf("%s (%s)", host, inet_ntoa(addr));
 	else
@@ -376,24 +282,8 @@ static void	print_ts_addr(unsigned int raw_addr)
 }
 
 /**
- * @brief Prints the IP Timestamp option recorded in a reply, if the
- * reply carried one - byte-for-byte matching canonical's print_ip_opt()
- * for the IPOPT_TS case (verified against inetutils 2.6 source and a
- * live capture).
- *
- * print_reply() has already terminated the main reply line with its own
- * newline, so unlike canonical (which keeps that line open and supplies
- * the separating newline itself, via "\nTS:") this starts directly with
- * "TS:". One line per filled slot: for tsaddr, the recording host's
- * address (numeric, or resolved per -n/--numeric - see
- * resolve_reverse()) immediately followed by its timestamp; for tsonly,
- * just the timestamp. A final blank line is always printed when the
- * option was present, matching canonical's own unconditional trailing
- * newline after the option dump. No-op if the reply carried no
- * timestamp option (ts->present == 0) or under -f/--flood, which
- * already replaces the whole per-reply line with a single backspace.
- *
- * @param ts Option data already decoded by parse_ip_timestamp_reply().
+ * @brief Prints the TS: block for a reply that carried an IP timestamp
+ *        option.
  */
 void	print_ip_timestamp_option(const t_ts_option *ts)
 {

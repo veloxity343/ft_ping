@@ -1,12 +1,7 @@
 #include "ft_ping.h"
 
 /**
- * @brief Reports why socket() failed and exits.
- *
- * EPERM/EACCES specifically mean the process lacks CAP_NET_RAW (not
- * running as root, or missing the capability) - worth a clearer message
- * than a bare strerror(), since it's the single most common way this
- * program fails to even start.
+ * @brief Prints why socket() failed (with a hint about root) and exits.
  */
 static void	handle_socket_error(void)
 {
@@ -19,11 +14,7 @@ static void	handle_socket_error(void)
 }
 
 /**
- * @brief Reports a failed setsockopt() call, closes the socket, and
- * exits. Shared by every apply_*() function below.
- *
- * @param fd   The socket descriptor to close before exiting.
- * @param name The option name to show in the error, e.g. "IP_TTL".
+ * @brief Prints a setsockopt() failure, closes fd and exits.
  */
 static void	sockopt_error(int fd, const char *name)
 {
@@ -33,10 +24,7 @@ static void	sockopt_error(int fd, const char *name)
 }
 
 /**
- * @brief --ttl. Sets the IP_TTL sockopt, applied unconditionally
- * (defaults to DEFAULT_TTL if the user never passed --ttl).
- *
- * @param fd The socket to apply the option to.
+ * @brief Sets IP_TTL from --ttl.
  */
 static void	apply_ttl(int fd)
 {
@@ -46,10 +34,7 @@ static void	apply_ttl(int fd)
 }
 
 /**
- * @brief -T/--tos. Sets the IP_TOS sockopt. Always applied, defaulting
- * to 0 if the user never passed -T.
- *
- * @param fd The socket to apply the option to.
+ * @brief Sets IP_TOS from -T.
  */
 static void	apply_tos(int fd)
 {
@@ -59,16 +44,7 @@ static void	apply_tos(int fd)
 }
 
 /**
- * @brief -W/--linger. Sets SO_RCVTIMEO to the per-reply wait budget
- * (default DEFAULT_TIMEOUT seconds).
- *
- * In practice recvfrom() in receive_ping() only ever runs after poll()
- * has already reported the socket readable (see wait_for_icmp_packet()),
- * so this rarely does the actual waiting - it's a defensive backstop
- * against recvfrom() blocking unexpectedly, not the primary wait
- * mechanism.
- *
- * @param fd The socket to apply the option to.
+ * @brief Sets the receive timeout from -W.
  */
 static void	apply_timeout(int fd)
 {
@@ -82,15 +58,7 @@ static void	apply_timeout(int fd)
 }
 
 /**
- * @brief -r/--ignore-routing. Sets SO_DONTROUTE, a no-op unless -r was
- * given.
- *
- * Doesn't actually bypass IP routing tables the way canonical's
- * equivalent flag is documented to; SO_DONTROUTE (send only to hosts on
- * directly attached networks, skip the routing table) is the closest
- * available socket-level equivalent.
- *
- * @param fd The socket to apply the option to.
+ * @brief Sets SO_DONTROUTE when -r is given.
  */
 static void	apply_dontroute(int fd)
 {
@@ -104,22 +72,8 @@ static void	apply_dontroute(int fd)
 }
 
 /**
- * @brief --ip-timestamp. Has the kernel prepend an IP Timestamp option
- * (RFC 791, option 68) to every outgoing packet on this socket, a no-op
- * unless --ip-timestamp was given.
- *
- * tsonly reserves 9 timestamp-only slots (4 bytes each); tsaddr reserves
- * 4 address+timestamp slots (8 bytes each). Slots are filled in by
- * transit routers and the destination itself as the packet travels, not
- * by this program - see parse_ip_timestamp_reply() (icmp.c) for how the
- * filled-in reply is read back and print_ip_timestamp_option() (output.c)
- * for how it's displayed.
- *
- * Byte layout was checked against inetutils 2.0 and 2.6 source directly
- * (identical between versions) and confirmed live on the wire via
- * tcpdump -vv.
- *
- * @param fd The socket to apply the option to.
+ * @brief Asks the kernel to add an IP timestamp option (tsonly or tsaddr)
+ *        to outgoing packets.
  */
 static void	apply_ip_timestamp(int fd)
 {
@@ -141,15 +95,8 @@ static void	apply_ip_timestamp(int fd)
 }
 
 /**
- * @brief Opens the raw ICMP socket used for the whole run, applies every
- * per-socket option, and stores the descriptor in g_ping.sockfd.
- *
- * Requires CAP_NET_RAW (root, in practice). Called once, from main(),
- * before the send/receive loop starts.
- *
- * @return The opened socket descriptor (also left in g_ping.sockfd).
- *         On any failure this exits directly from handle_socket_error()
- *         or sockopt_error() and never returns.
+ * @brief Opens the raw ICMP socket, applies the socket options and stores
+ *        it in g_ping.sockfd.
  */
 int	open_socket(void)
 {
