@@ -214,6 +214,19 @@ This implementation checks the deadline before each regular send and limits the
 reply wait to the remaining time. A reply that arrives after the overall
 deadline is still counted as lost, as expected for a bounded run.
 
+The `-W` reply window is counted from the moment the wait starts, so other ICMP
+traffic reaching the socket (another `ping` on the host, errors for other
+programs) does not stretch it or hold back the next send.
+
+### ICMP errors
+
+A router answering with an error (TTL exceeded, network unreachable, ...) is not
+an echo reply: it is never counted as received and never stops the run. It is
+printed the way inetutils does, `92 bytes from 10.77.1.2: Time to live
+exceeded`, even without `-v` when it concerns a request sent to the target.
+`-v` adds the quoted original request and also reports errors about requests
+sent to any other destination (see the example under [Usage](#usage)).
+
 ### IP timestamp output
 
 `--ip-timestamp` causes the kernel to attach the option to outgoing requests
@@ -292,9 +305,9 @@ Test suite:
   same structure. Beyond that, the default run, `-p`, `-l`, `--ttl`/`-T`,
   `--ip-timestamp=tsaddr` (with and without `-n`), `-s` from 0 to 65399 and
   the ICMP error output (one-line and `-v` forms, for TTL expiry and no
-  route, on a private client/router network) are each diffed against the real binary with only
-  seq/ttl/time and packet counts masked. Bad option values are rejected by
-  both programs with the same exit status.
+  route, on a private client/router network) are each diffed against the real
+  binary with only seq/ttl/time and packet counts masked. Bad option values
+  are rejected by both programs with the same exit status.
 - **Wire level:** with `tcpdump -vv`, a plain request is 84 bytes with no IP
   options, and with `--ip-timestamp` it is 124 bytes carrying a decoded `TS`
   option on both the request and the reply.
@@ -307,6 +320,11 @@ Test suite:
   cleanly and still print the summary; two concurrent instances do not see
   each other's replies; file descriptors and memory stayed constant over an
   8 second flood.
+- **Memory and alignment:** valgrind (no errors, no leaks) and an
+  UndefinedBehaviorSanitizer build (no reports) over normal runs, `-s` at both
+  ends of its range, `-l`, `-f`, `-p`, `--ip-timestamp` and the ICMP error
+  paths. A reply wait under constant unrelated ICMP traffic still sends one
+  packet per second.
 - **Arguments:** out-of-range and malformed values are rejected with the exact
   message `ft_ping: invalid argument 'X' for '--option'`, before any socket is
   opened.
@@ -314,9 +332,10 @@ Test suite:
 Test commands:
 
 ```sh
-./ft_ping -?                                              # exact help text, exit 0
+./ft_ping -?                                              # exact help text, exit 0 (--help is the same)
 sudo ./ft_ping -w 3 google.com                            # FQDN banner shows hostname + IP
-sudo ./ft_ping --ttl 1 -v -w 3 8.8.8.8                    # ICMP error, program keeps running
+sudo ./ft_ping --ttl 1 -v -w 3 8.8.8.8                    # ICMP error + quoted request, program keeps running
+sudo ./ft_ping -s 4 -w 1 127.0.0.1                        # 12 bytes, no time= (nothing to time)
 sudo ./ft_ping -l 5 -w 2 127.0.0.1                        # 7 transmitted, 7 received
 sudo ./ft_ping -f -w 1 127.0.0.1 | cat -v                 # dot/backspace pairs
 sudo ./ft_ping --ip-timestamp=tsaddr -n -w 1 127.0.0.1    # numeric address in TS: block
