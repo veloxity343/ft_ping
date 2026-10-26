@@ -74,12 +74,14 @@ static void	sleep_flood_interval(struct timeval *send_time)
 
 /**
  * @brief Sends the -l burst back to back, then reads that many replies
- *        (within one -W window if no -w is set).
+ *        (within one -W window, counted from the end of the burst, if no
+ *        -w is set).
  */
 static void	send_preload(void)
 {
-	int	i;
-	int	saved_timeout;
+	int				i;
+	int				saved_timeout;
+	struct timeval	saved_start;
 
 	i = 0;
 	while (i < g_ping.opts.preload)
@@ -88,8 +90,12 @@ static void	send_preload(void)
 		i++;
 	}
 	saved_timeout = g_ping.opts.timeout;
+	saved_start = g_ping.start_time;
 	if (g_ping.opts.timeout <= 0)
+	{
 		g_ping.opts.timeout = g_ping.opts.linger;
+		gettimeofday(&g_ping.start_time, NULL);
+	}
 	i = 0;
 	while (i < g_ping.opts.preload && !g_ping.stop)
 	{
@@ -97,6 +103,7 @@ static void	send_preload(void)
 		i++;
 	}
 	g_ping.opts.timeout = saved_timeout;
+	g_ping.start_time = saved_start;
 }
 
 /**
