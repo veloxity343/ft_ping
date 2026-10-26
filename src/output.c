@@ -54,7 +54,7 @@ static void	print_rtt_line(void)
 	double	var;
 	double	stddev;
 
-	n = g_ping.stats.received + g_ping.stats.duplicates;
+	n = g_ping.stats.rtt_count;
 	avg = g_ping.stats.rtt_sum / n;
 	var = g_ping.stats.rtt_sum2 / n - avg * avg;
 	if (var < 0.0)
@@ -65,7 +65,8 @@ static void	print_rtt_line(void)
 }
 
 /**
- * @brief Prints the closing statistics block.
+ * @brief Prints the closing statistics block. The round-trip line is only
+ *        printed if some replies were timed.
  */
 void	print_statistics(void)
 {
@@ -82,7 +83,7 @@ void	print_statistics(void)
 			ft_printf("%d%% packet loss", packet_loss_pct());
 	}
 	ft_printf("\n");
-	if (g_ping.stats.received > 0 && TIMING(g_ping.opts.packet_size))
+	if (g_ping.stats.rtt_count > 0)
 		print_rtt_line();
 }
 

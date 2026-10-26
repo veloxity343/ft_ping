@@ -260,13 +260,13 @@ int	send_ping(void)
  */
 static void	update_rtt_stats(double rtt)
 {
-	if (g_ping.stats.received + g_ping.stats.duplicates == 0
-		|| rtt < g_ping.stats.rtt_min)
+	if (g_ping.stats.rtt_count == 0 || rtt < g_ping.stats.rtt_min)
 		g_ping.stats.rtt_min = rtt;
 	if (rtt > g_ping.stats.rtt_max)
 		g_ping.stats.rtt_max = rtt;
 	g_ping.stats.rtt_sum += rtt;
 	g_ping.stats.rtt_sum2 += rtt * rtt;
+	g_ping.stats.rtt_count++;
 }
 
 /**

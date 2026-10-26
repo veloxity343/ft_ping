@@ -113,6 +113,7 @@ typedef struct s_stats
 	int		transmitted;
 	int		received;
 	int		duplicates;
+	int		rtt_count;	// replies that were timed (counts the RTT samples)
 	double	rtt_min;
 	double	rtt_max;
 	double	rtt_sum;

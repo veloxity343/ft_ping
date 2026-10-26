@@ -245,6 +245,12 @@ no `-w` is given, that collection phase is limited to one `-W` window in total,
 so a lossy or unreachable target cannot stall startup for `preload * linger`
 seconds.
 
+The kernel's receive buffer holds only about 120 replies, so a larger burst
+loses the rest (inetutils loses them too). `ft_ping` still waits for the
+missing replies, which can use up the whole `-w` window and leave no time for
+regular packets (`-l 300 -w 3` sends just the 300), where inetutils keeps
+sending.
+
 ## Differences from inetutils
 
 The subject requires matching inetutils-2.0 for the reply, banner, statistics
