@@ -75,7 +75,7 @@ A normal run (`-w` stops the run after that many seconds):
 ```text
 $ sudo ./ft_ping -w 1 127.0.0.1
 PING 127.0.0.1 (127.0.0.1): 56 data bytes
-64 bytes from 127.0.0.1: icmp_seq=1 ttl=64 time=0.037 ms
+64 bytes from 127.0.0.1: icmp_seq=0 ttl=64 time=0.037 ms
 --- 127.0.0.1 ping statistics ---
 1 packets transmitted, 1 packets received, 0% packet loss
 round-trip min/avg/max/stddev = 0.037/0.037/0.037/0.000 ms
@@ -94,7 +94,7 @@ IP Hdr Dump:
  4500 0054 930d 4000 0101 cefc 0a4d 0101 0a4d 0205 
 Vr HL TOS  Len   ID Flg  off TTL Pro  cks      Src	Dst	Data
  4  5  00 0054 930d   2 0000  01  01 cefc 10.77.1.1  10.77.2.5 
-ICMP: type 8, code 0, size 64, id 0xc153, seq 0x0001
+ICMP: type 8, code 0, size 64, id 0xc153, seq 0x0000
 --- 10.77.2.5 ping statistics ---
 1 packets transmitted, 0 packets received, 100% packet loss
 ```
@@ -110,7 +110,7 @@ milliseconds since midnight UT:
 ```text
 $ sudo ./ft_ping --ip-timestamp=tsonly -w 1 127.0.0.1
 PING 127.0.0.1 (127.0.0.1): 56 data bytes
-64 bytes from 127.0.0.1: icmp_seq=1 ttl=64 time=0.033 ms
+64 bytes from 127.0.0.1: icmp_seq=0 ttl=64 time=0.033 ms
 TS:	50912722 ms
 	50912722 ms
 	50912722 ms
@@ -260,7 +260,6 @@ either deliberate or outside what the subject asks for.
 
 | Area | inetutils | ft_ping |
 |:--|:--|:--|
-| First `icmp_seq` | `0` | `1` |
 | `-w` deadline | Checked right after a send, so the last packet can be sent with no time left to answer it | Checked before each send, so every packet sent gets a reply window |
 | `-c COUNT`, `-i INTERVAL`, `-q` | Supported | Not implemented (use `-w` to bound a run) |
 | `-R`, `-V`, `--usage`, `--echo`, `--type` | Supported | Not implemented |

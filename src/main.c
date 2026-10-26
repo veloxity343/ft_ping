@@ -16,7 +16,7 @@ static void	init_defaults(void)
 	g_ping.opts.linger = DEFAULT_TIMEOUT;
 	g_ping.opts.packet_size = PACKET_SIZE;
 	g_ping.pid = getpid();
-	g_ping.seq = 1;
+	g_ping.seq = 0;
 	g_ping.stop = 0;
 }
 
@@ -35,7 +35,7 @@ static void	sleep_until_next_send(struct timeval *start_time)
 	elapsed_ms = timeval_diff_ms(start_time, &now);
 	/* seq only moves on a successful send. If sends keep failing the loop
 	** doesn't spin anyway, receive_ping() still waits out the -W window. */
-	target_ms = (double)(g_ping.seq - 1 - g_ping.opts.preload)
+	target_ms = (double)(g_ping.seq - g_ping.opts.preload)
 		* (double)DEFAULT_INTERVAL * 1000.0;
 	if (g_ping.opts.timeout > 0
 		&& elapsed_ms >= (double)g_ping.opts.timeout * 1000.0)
